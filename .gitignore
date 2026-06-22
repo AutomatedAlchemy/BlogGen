@@ -1,0 +1,10 @@
+# Secrets
+.env
+
+# Generated output
+screenshot_blogposts/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/

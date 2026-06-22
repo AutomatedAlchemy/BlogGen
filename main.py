@@ -1,0 +1,1341 @@
+import os
+import subprocess
+import sys
+import re
+import argparse
+import json
+from pathlib import Path
+
+# ================= ADVERTISEMENT =================
+if "--advertise" in sys.argv:
+    metadata = [{
+        "name": "AI Screenshot Blogpost",
+        "capability": "summarize",
+        "domain": "html",
+        "category": "research",
+        "desktop_file": "ai_screenshot_blogpost.desktop",
+        "icon": "document-edit",
+        "desc": "Generate insightful HTML blogpost from screenshot",
+        "terminal": False,
+        "args": [],
+        "tags": ["CLI", "Icon"],
+        "skill_name": "screenshot-blogpost",  # surfaces a Skill checkbox in the installer GUI
+    }]
+    print(json.dumps(metadata))
+    sys.exit(0)
+
+# Add root directory to path for shared module imports
+# Two levels up: tool_dir -> category_dir -> root
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+# ================= CLAUDE SKILL (single source of truth) =================
+# Edit SKILL_MD_CONTENT here, then run `python main.py --install-skill`.
+# Never hand-edit the installed file — --install-skill overwrites it.
+SKILL_DIR = Path.home() / ".claude" / "skills" / "screenshot-blogpost"
+SKILL_FILE = SKILL_DIR / "SKILL.md"
+
+SKILL_MD_CONTENT = '''---
+name: screenshot-blogpost
+description: Turn a screenshot, image(s), PDF, or pasted text into a self-contained, styled HTML blogpost (Gemini-generated — analysis + responsive CSS + MathJax) saved to disk and opened in the browser. Use when the user wants visual or document content written up as a shareable HTML article — "make a blogpost from this screenshot", "turn this image/PDF into an HTML write-up", "write up what's in this screenshot", "Blogpost aus diesem Screenshot", "mach einen Artikel aus diesem Bild/PDF". NOT for plain OCR / text or LaTeX extraction (use transcribe-image) and NOT for the daily digest (use digest).
+---
+
+# screenshot-blogpost — image/PDF/text -> styled HTML blogpost
+
+Two-phase Gemini tool: it first *analyzes* the supplied content (text + images),
+then *generates* a complete, self-contained HTML5 blogpost (inline CSS,
+responsive layout, optional MathJax) that expands on the concepts it found. The
+HTML and any referenced images are written to the tool's `screenshot_blogposts/`
+directory and opened in Firefox.
+
+## Invocation — use absolute paths, NOT the alias/desktop entry
+
+Run the tool's headless `--analyze-only` content mode directly. Re-define these
+in **every** Bash call (shell state does not persist between calls). The
+`SCREENSHOT_BLOGPOST_ENV` export points the tool at the fleet `.env`
+(`GEMINI_API_KEY` + shared model lists) — the tool parses it with python-dotenv,
+which handles the multi-line model lists that a shell `source` chokes on:
+
+```bash
+PY=/home/prob/Synced/repos/prob_ubuntu_environment/Py3EnvShare/bin/python3
+SB=/home/prob/Synced/repos/AutomatedAlchemy/screenshot-blogpost/main.py
+export SCREENSHOT_BLOGPOST_ENV=/home/prob/Synced/repos/tools/.env
+```
+
+## Commands
+
+```bash
+# From one or more images
+"$PY" "$SB" --analyze-only --image-files /path/a.png /path/b.jpg
+
+# From a PDF (extracts its text AND embedded images)
+"$PY" "$SB" --analyze-only --text-files /path/paper.pdf
+
+# From a single screenshot/image (screenshot-specific prompt + hero image)
+"$PY" "$SB" --analyze-only --screenshot-path /path/shot.png
+
+# From literal/pasted text — write it to a file first, then pass it
+printf '%s' "the text to write up" > /tmp/sb_text.txt
+"$PY" "$SB" --analyze-only --raw-text-file /tmp/sb_text.txt
+
+# Mix any of the above in one post
+"$PY" "$SB" --analyze-only --text-files notes.pdf --image-files fig1.png --raw-text-file /tmp/sb_text.txt
+```
+
+## Output
+- Saves `blogpost_<...>.html` (plus copied images) under
+  `.../AutomatedAlchemy/screenshot-blogpost/screenshot_blogposts/` and prints the
+  path as `Saved HTML: <path>` — read that line back to the user.
+- Auto-opens the result in Firefox.
+- Non-interactive runs (Claude's Bash tool) skip the end-of-run countdown and
+  return promptly.
+
+## Notes
+- Needs `GEMINI_API_KEY` in `~/Synced/repos/tools/.env` (already set on this fleet).
+- Prefers `gemini-3.5-flash`, then falls back through the shared `.env` model lists.
+- `--text-files` accepts PDFs (text + images extracted) and plain-text files.
+- `--image-files` accepts ordinary image files; up to 5 images per PDF are pulled in.
+- This tool *writes about* the content (generation). For straight OCR / LaTeX
+  extraction of a page, use the `transcribe-image` skill instead.
+'''
+
+
+def _install_skill() -> None:
+    """Write (or refresh) ~/.claude/skills/screenshot-blogpost/SKILL.md from the inline source."""
+    SKILL_DIR.mkdir(parents=True, exist_ok=True)
+    pre_existed = SKILL_FILE.exists()
+    if pre_existed and SKILL_FILE.read_text(encoding="utf-8") == SKILL_MD_CONTENT:
+        print(f"  - Skill already up-to-date: {SKILL_FILE}")
+        return
+    SKILL_FILE.write_text(SKILL_MD_CONTENT, encoding="utf-8")
+    verb = "Refreshed" if pre_existed else "Installed"
+    print(f"  Skill {verb}: {SKILL_FILE}")
+    print("  Claude Code picks this up live - no restart needed.")
+
+
+def _uninstall_skill() -> None:
+    """Remove ~/.claude/skills/screenshot-blogpost/SKILL.md (and the empty dir)."""
+    if SKILL_FILE.exists():
+        SKILL_FILE.unlink()
+        print(f"  Removed {SKILL_FILE}")
+    else:
+        print(f"  No skill file at {SKILL_FILE}")
+    try:
+        SKILL_DIR.rmdir()  # only if empty
+    except OSError:
+        pass
+
+
+if "--install-skill" in sys.argv:
+    _install_skill()
+    sys.exit(0)
+if "--uninstall-skill" in sys.argv:
+    _uninstall_skill()
+    sys.exit(0)
+
+# ================= INSTALL / REMOVE (before heavy imports) =================
+# Canonical import is the cli_tool_kit pip package; fall back to the in-tree
+# shim for environments without it (subtree exports, etc.).
+if "--install" in sys.argv or "--remove" in sys.argv:
+    try:
+        from cli_tool_kit import ToolInstaller, ToolMetadata
+    except ImportError:
+        try:
+            from _shared.tool_installer import ToolInstaller, ToolMetadata
+        except ImportError:
+            print(
+                "--install/--remove need the cli-tool-kit package "
+                "(pip install cli-tool-kit). Blogpost generation itself works "
+                "without it via the CLI flags — see the README."
+            )
+            sys.exit(1)
+
+    _installer = ToolInstaller(
+        script_path=__file__,
+        metadata=ToolMetadata(
+            name="AI Screenshot Blogpost",
+            desktop_file="ai_screenshot_blogpost.desktop",
+            icon="document-edit",
+            desc="Generate insightful HTML blogpost from screenshot",
+            categories="Utility;Office;",
+        ),
+    )
+    if "--install" in sys.argv:
+        _installer.install()
+        _install_skill()  # best-effort so direct CLI use is one-shot
+    else:
+        _installer.remove()
+        _uninstall_skill()
+    sys.exit(0)
+
+import shutil
+import webbrowser
+import select
+import termios
+import tty
+import traceback
+import tempfile
+from datetime import datetime
+from dotenv import load_dotenv, find_dotenv
+from PIL import Image
+import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from termcolor import colored
+
+# Optional PDF support - graceful fallback if not installed
+try:
+    import PyPDF2
+    HAS_PYPDF2 = True
+except ImportError:
+    HAS_PYPDF2 = False
+
+
+# ================= CONFIGURATION =================
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# Load a .env without baking in any one checkout layout: an explicit override
+# first, then the tool's own directory, then a walk up the tree (so a .env at a
+# parent/repo root is still found). If none exist we fall back to the process
+# environment (e.g. GEMINI_API_KEY exported by the shell), so the tool stays
+# usable both standalone and inside a larger workspace.
+_env_override = os.environ.get("SCREENSHOT_BLOGPOST_ENV")
+_local_env = os.path.join(SCRIPT_DIR, ".env")
+_env_path = _env_override or (_local_env if os.path.exists(_local_env) else find_dotenv(usecwd=False))
+if _env_path:
+    load_dotenv(_env_path)
+
+# API Configuration
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Model this tool prefers, kept ahead of the shared .env lists so the blogpost
+# generator uses it first; the env-configured models remain as fallbacks (and
+# the generation loop already skips a MODEL NOT FOUND id gracefully).
+PREFERRED_MODEL = "gemini-3.5-flash"
+
+def get_candidate_models():
+    """Unique, ordered model list: PREFERRED_MODEL first, then any models from the
+    shared .env vars, then a hardcoded fallback when no env vars are set."""
+    models = [PREFERRED_MODEL]
+    # Priority order for fallback: specific var -> list var -> strong var
+    for var in ["COMPETENT_GEMINI_MODELS", "STRONG_GEMINI_MODELS"]:
+        val = os.getenv(var)
+        if val:
+            for m in val.split(","):
+                m = m.strip()
+                if m and m not in models:
+                    models.append(m)
+    if models == [PREFERRED_MODEL]:
+        models += ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash"]
+    return models
+
+GEMINI_CANDIDATE_MODELS = get_candidate_models()
+BROWSER_PATH = os.getenv("BROWSER_PATH", "/usr/bin/firefox")
+# Per-invocation tempdir avoids the symlink-race on a fixed /tmp/<name>.png path
+# (a local attacker on a shared host could pre-symlink it at any writable target).
+import tempfile as _tempfile
+TEMP_FILENAME = os.path.join(
+    _tempfile.mkdtemp(prefix="screenshot_blogpost_"), "screenshot.png"
+)
+BLOGPOST_DIR = os.path.join(SCRIPT_DIR, "screenshot_blogposts")
+
+# ================= UTILS & INSTALLATION =================
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Generate HTML blogpost from screenshot using AI")
+    parser.add_argument("--install", action="store_true", help="Install desktop shortcut")
+    parser.add_argument("--remove", action="store_true", help="Remove desktop shortcut")
+    parser.add_argument("--analyze-only", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--screenshot-path", type=str, help=argparse.SUPPRESS)  # Parent passes its per-invocation temp screenshot path to the child
+    parser.add_argument("--text-files", type=str, nargs='*', help=argparse.SUPPRESS)  # Paths to text/PDF files
+    parser.add_argument("--image-files", type=str, nargs='*', help=argparse.SUPPRESS)  # Paths to image files
+    parser.add_argument("--raw-text-file", type=str, help=argparse.SUPPRESS)  # Path to temp file with pasted text
+    parser.add_argument("--content-dir", type=str, help=argparse.SUPPRESS)  # Directory with extracted PDF images
+    return parser.parse_args()
+
+
+def launch_terminal_process():
+    python_exec = sys.executable
+    script_path = os.path.abspath(__file__)
+    # Pass the parent's per-invocation temp path explicitly: the child is a fresh
+    # Python process and would otherwise call mkdtemp() again, landing on a
+    # different dir and failing to find the screenshot the parent just saved.
+    cmd = ["konsole", "-e", python_exec, script_path,
+           "--analyze-only", "--screenshot-path", TEMP_FILENAME]
+    subprocess.Popen(cmd)
+
+def auto_close_timer(seconds=10):
+    """Counts down if success. If ESC pressed, stays open."""
+    # Non-interactive (agent/headless) stdin has no TTY to read keys from and
+    # termios.tcgetattr would raise — nothing to wait on, so return promptly.
+    if not sys.stdin.isatty():
+        return
+    print(colored(f"\n[SUCCESS] Closing in {seconds} seconds. Press ESC to keep open.", "white"))
+
+    old_settings = termios.tcgetattr(sys.stdin)
+    try:
+        tty.setcbreak(sys.stdin.fileno())
+        for i in range(seconds, 0, -1):
+            sys.stdout.write(f"\rClosing in {i}s...  ")
+            sys.stdout.flush()
+            if select.select([sys.stdin], [], [], 1)[0]:
+                key = sys.stdin.read(1)
+                if key == '\x1b':  # ESC
+                    sys.stdout.write("\nAuto-close CANCELLED. Window will stay open.\n")
+                    input("\nPress Enter to close manually...")
+                    return
+    except Exception:
+        pass
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+
+def manual_hold_on_crash():
+    print(colored("\n-------------------------------------------", "red", attrs=["bold"]))
+    print(colored("    PROCESS FAILED. WINDOW HELD OPEN.      ", "red", attrs=["bold"]))
+    print(colored("-------------------------------------------", "red", attrs=["bold"]))
+    try:
+        input(colored("Press Enter to close terminal...", "white", attrs=["bold"]))
+    except:
+        pass
+
+# ================= FILE INPUT FALLBACK =================
+
+def open_content_dialog():
+    """Open the interactive data-retrieval window for blogpost generation.
+
+    The tkinter window lives in the optional ``_shared.gui`` package (part of the
+    author's tools monorepo / cli-tool-kit). In a standalone checkout it won't be
+    importable — that's fine: the CLI flags (``--screenshot-path`` /
+    ``--image-files`` / ``--text-files`` / ``--raw-text-file``) cover every
+    headless path, so we just tell the user to use those instead.
+    """
+    try:
+        from _shared.gui import DataRetrievalWindow, DataRetrievalConfig
+    except ImportError:
+        print(colored(
+            "Interactive content window unavailable (optional _shared.gui package "
+            "not installed). Use the CLI flags instead — e.g.\n"
+            "  main.py --analyze-only --image-files shot.png\n"
+            "  main.py --analyze-only --text-files paper.pdf\n"
+            "  main.py --analyze-only --raw-text-file notes.txt\n"
+            "See the README for all options.", "yellow"))
+        return None
+    config = DataRetrievalConfig(
+        title="Blogpost Content Input",
+        confirm_button_text="Generate Blogpost",
+        enable_text_input=True,
+        enable_images=True
+    )
+    return DataRetrievalWindow(config).run()  # Returns dict {'texts': list, 'files': list, 'images': list} or None
+
+
+def extract_text_from_pdf(pdf_path):
+    """Extract raw text from a PDF file."""
+    if not HAS_PYPDF2:
+        print(colored("PyPDF2 not installed. Install with: pip install PyPDF2", "red"))
+        return None
+
+    try:
+        text_parts = []
+        with open(pdf_path, 'rb') as f:
+            reader = PyPDF2.PdfReader(f)
+            print(colored(f"PDF has {len(reader.pages)} pages", "white"))
+
+            for i, page in enumerate(reader.pages):
+                page_text = page.extract_text()
+                if page_text:
+                    text_parts.append(f"--- Page {i+1} ---\n{page_text}")
+
+        full_text = "\n\n".join(text_parts)
+        print(colored(f"Extracted {len(full_text)} characters from PDF", "green"))
+        return full_text
+
+    except Exception as e:
+        print(colored(f"Error reading PDF text: {e}", "red"))
+        return None
+
+
+def extract_images_from_pdf(pdf_path, output_dir):
+    """
+    Extract embedded images from a PDF file.
+    Returns list of image paths.
+    """
+    if not HAS_PYPDF2:
+        print(colored("PyPDF2 not installed. Install with: pip install PyPDF2", "red"))
+        return []
+
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+
+        print(colored(f"Extracting embedded images from PDF...", "cyan"))
+        image_paths = []
+        base_name = os.path.splitext(os.path.basename(pdf_path))[0]
+        base_name = re.sub(r'[^\w\-]', '_', base_name)[:30]
+
+        with open(pdf_path, 'rb') as f:
+            reader = PyPDF2.PdfReader(f)
+            img_count = 0
+
+            for page_num, page in enumerate(reader.pages):
+                # Check if page has images
+                if '/XObject' not in page.get('/Resources', {}):
+                    continue
+
+                x_objects = page['/Resources']['/XObject'].get_object()
+
+                for obj_name in x_objects:
+                    x_obj = x_objects[obj_name]
+                    if x_obj['/Subtype'] == '/Image':
+                        img_count += 1
+
+                        # Determine image format and extract data
+                        try:
+                            width = x_obj['/Width']
+                            height = x_obj['/Height']
+
+                            # Get the filter type to determine format
+                            img_filter = x_obj.get('/Filter', '')
+                            if isinstance(img_filter, list):
+                                img_filter = img_filter[0] if img_filter else ''
+
+                            data = x_obj.get_data()
+
+                            # Handle different image formats
+                            if img_filter == '/DCTDecode':
+                                # JPEG
+                                ext = 'jpg'
+                                img_filename = f"{base_name}_img_{img_count:03d}.{ext}"
+                                img_path = os.path.join(output_dir, img_filename)
+                                with open(img_path, 'wb') as img_file:
+                                    img_file.write(data)
+
+                            elif img_filter == '/FlateDecode':
+                                # PNG/raw - need to reconstruct
+                                ext = 'png'
+                                img_filename = f"{base_name}_img_{img_count:03d}.{ext}"
+                                img_path = os.path.join(output_dir, img_filename)
+
+                                color_space = x_obj.get('/ColorSpace', '/DeviceRGB')
+                                if isinstance(color_space, list):
+                                    color_space = color_space[0]
+
+                                if color_space == '/DeviceRGB':
+                                    mode = 'RGB'
+                                elif color_space == '/DeviceCMYK':
+                                    mode = 'CMYK'
+                                elif color_space == '/DeviceGray':
+                                    mode = 'L'
+                                else:
+                                    mode = 'RGB'
+
+                                bits = x_obj.get('/BitsPerComponent', 8)
+                                if bits == 1:
+                                    mode = '1'
+
+                                try:
+                                    img = Image.frombytes(mode, (width, height), data)
+                                    if mode == 'CMYK':
+                                        img = img.convert('RGB')
+                                    img.save(img_path, 'PNG')
+                                except Exception:
+                                    # If reconstruction fails, skip this image
+                                    img_count -= 1
+                                    continue
+
+                            elif img_filter == '/JPXDecode':
+                                # JPEG2000
+                                ext = 'jp2'
+                                img_filename = f"{base_name}_img_{img_count:03d}.{ext}"
+                                img_path = os.path.join(output_dir, img_filename)
+                                with open(img_path, 'wb') as img_file:
+                                    img_file.write(data)
+
+                            elif img_filter == '/CCITTFaxDecode':
+                                # TIFF/Fax - skip for now as reconstruction is complex
+                                img_count -= 1
+                                continue
+
+                            else:
+                                # Try to save raw data and let PIL figure it out
+                                ext = 'png'
+                                img_filename = f"{base_name}_img_{img_count:03d}.{ext}"
+                                img_path = os.path.join(output_dir, img_filename)
+                                try:
+                                    from io import BytesIO
+                                    img = Image.open(BytesIO(data))
+                                    img.save(img_path, 'PNG')
+                                except Exception:
+                                    img_count -= 1
+                                    continue
+
+                            image_paths.append(img_path)
+                            print(colored(f"  Saved: {img_filename} ({width}x{height})", "white"))
+
+                        except Exception as e:
+                            print(colored(f"  Warning: Could not extract image {img_count}: {e}", "yellow"))
+                            img_count -= 1
+                            continue
+
+        if image_paths:
+            print(colored(f"Extracted {len(image_paths)} embedded images from PDF", "green"))
+        else:
+            print(colored("No embedded images found in PDF", "yellow"))
+
+        return image_paths
+
+    except Exception as e:
+        print(colored(f"Error extracting PDF images: {e}", "red"))
+        return []
+
+
+def read_text_file(file_path):
+    """Read raw text from a text-based file."""
+    try:
+        for encoding in ['utf-8', 'latin-1', 'cp1252']:
+            try:
+                with open(file_path, 'r', encoding=encoding) as f:
+                    text = f.read()
+                print(colored(f"Read {len(text)} characters from file (encoding: {encoding})", "green"))
+                return text
+            except UnicodeDecodeError:
+                continue
+
+        print(colored("Could not decode file with common encodings", "red"))
+        return None
+
+    except Exception as e:
+        print(colored(f"Error reading file: {e}", "red"))
+        return None
+
+
+def get_file_content(file_path, content_dir=None):
+    """
+    Extract content from a file based on its extension.
+    For PDFs, extracts both text and images.
+    Returns: (text_content, [image_paths], filename)
+    """
+    if not file_path or not os.path.exists(file_path):
+        return None, [], None
+
+    ext = os.path.splitext(file_path)[1].lower()
+    filename = os.path.basename(file_path)
+
+    print(colored(f"\nProcessing file: {filename}", "cyan"))
+
+    if ext == '.pdf':
+        text = extract_text_from_pdf(file_path)
+        images = []
+        if content_dir:
+            images = extract_images_from_pdf(file_path, content_dir)
+        return text, images, filename
+    else:
+        text = read_text_file(file_path)
+        return text, [], filename
+
+
+def take_screenshot():
+    """
+    Attempt to take a screenshot with Spectacle.
+    Returns True if successful, False if cancelled or failed.
+    """
+    try:
+        subprocess.run(["which", "spectacle"], check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(
+            ["spectacle", "-r", "-b", "-n", "-o", TEMP_FILENAME],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        if not os.path.exists(TEMP_FILENAME):
+            return False  # User cancelled (ESC pressed)
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+# ================= AI LOGIC =================
+
+def extract_html(text):
+    """
+    Extract HTML content from LLM response.
+    Priority: ```html...``` > <!DOCTYPE...> > <html...>
+    """
+    # Priority 1: Extract content inside ```html ... ```
+    html_block = re.search(r'```html\s*(.*?)```', text, re.DOTALL | re.IGNORECASE)
+    if html_block:
+        return html_block.group(1).strip()
+
+    # Priority 2: Extract content inside generic ``` ... ``` that looks like HTML
+    generic_block = re.search(r'```\s*(<!DOCTYPE.*?</html>)\s*```', text, re.DOTALL | re.IGNORECASE)
+    if generic_block:
+        return generic_block.group(1).strip()
+
+    # Priority 3: Find <!DOCTYPE html> ... </html>
+    doctype_match = re.search(r'(<!DOCTYPE\s+html.*?</html>)', text, re.DOTALL | re.IGNORECASE)
+    if doctype_match:
+        return doctype_match.group(1).strip()
+
+    # Priority 4: Find <html> ... </html>
+    html_match = re.search(r'(<html.*?</html>)', text, re.DOTALL | re.IGNORECASE)
+    if html_match:
+        return html_match.group(1).strip()
+
+    return None
+
+class StreamingError(Exception):
+    """Exception that preserves partial content from interrupted streams."""
+    def __init__(self, message, partial_content=""):
+        super().__init__(message)
+        self.partial_content = partial_content
+
+def stream_response(response_stream, color="green"):
+    """Stream and collect response text. Raises StreamingError with partial content on failure."""
+    full_text = ""
+    try:
+        for chunk in response_stream:
+            if hasattr(chunk, 'parts') and chunk.parts:
+                text_chunk = chunk.text
+                print(colored(text_chunk, color), end="", flush=True)
+                full_text += text_chunk
+    except Exception as e:
+        # Wrap the error but preserve what we collected
+        raise StreamingError(str(e), partial_content=full_text) from e
+    return full_text
+
+def is_transient_error(error_msg):
+    """Check if an error is transient and should trigger a fallback."""
+    transient_patterns = [
+        "429", "ResourceExhausted", "Quota",  # Rate limits
+        "500", "503", "Internal",              # Server errors
+        "timeout", "Deadline",                 # Timeouts
+        "UNAVAILABLE", "overloaded",           # Service issues
+    ]
+    error_lower = error_msg.lower()
+    return any(p.lower() in error_lower for p in transient_patterns)
+
+def generate_blogpost(image_path, image_filename):
+    """
+    Use Gemini to analyze screenshot and generate HTML blogpost.
+    Two-phase approach: 1) Analyze & reason, 2) Generate HTML
+    Handles mid-stream failures by continuing with next model.
+    """
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY is missing from .env file.")
+
+    genai.configure(api_key=GEMINI_API_KEY)
+
+    if not os.path.exists(image_path):
+        raise FileNotFoundError("Screenshot file was not found.")
+
+    img = Image.open(image_path)
+
+    # Phase 1: Analysis prompt
+    analysis_prompt = """Observe the contents of this image and explain what you see in detail.
+
+YOUR TASK:
+1. Describe every visible element - text, diagrams, charts, code, UI elements, etc.
+2. Identify the main topic, subject matter, or domain
+3. Extract key concepts, technical terms, jargon, or important names
+4. Note any data, numbers, relationships, or patterns shown
+5. Infer the context - what is this about? Why might someone have captured this?
+6. Identify 2-3 aspects that would benefit from deeper exploration or explanation
+
+Be thorough and analytical. Your analysis will be used to create an insightful blogpost."""
+
+    # Phase 2: HTML generation prompt (will be formatted with image_filename and date)
+    todays_date = datetime.now().strftime("%B %d, %Y")  # e.g., "January 16, 2026"
+
+    html_prompt_template = """Based on your analysis above, create a dense, insightful HTML blogpost.
+
+TODAY'S DATE: {todays_date} (use this for any date references in the blogpost)
+
+STEP 1 - PLANNING (think out loud):
+Before writing any HTML, plan your approach:
+- What sections and structure will best present this content?
+- What color scheme and typography fits the domain/topic? (e.g., scientific = clean blues, art = vibrant, code = dark theme)
+- Would any interactive elements enhance understanding? Consider:
+  * CSS animations (fade-ins, highlights, hover effects)
+  * Expandable/collapsible sections for detailed explanations
+  * Interactive diagrams or visualizations (SVG, CSS-only charts)
+  * Code syntax highlighting if relevant
+  * Tooltips for technical terms
+- How should the screenshot be presented? (hero image, floating, with annotations?)
+
+STEP 2 - CONTENT REQUIREMENTS:
+- Expand on the key concepts you identified with deeper context and scientific/technical grounding
+- Explain complex topics in an accessible but substantive way
+- Make connections to related concepts, history, or applications
+- Include the original screenshot prominently as a visual reference
+- Write in an engaging, informative style with clear sections
+
+STEP 3 - HTML/STYLING REQUIREMENTS:
+- Complete, valid HTML5 document with <!DOCTYPE html>
+- Inline CSS in a <style> tag with modern, readable typography
+- Implement the styling and interactive elements you planned above
+- Responsive design (works on mobile and desktop)
+- Include the image with: <img src="{image_filename}" alt="Screenshot">
+- Proper meta tags for charset and viewport
+- LATEX SUPPORT: Include MathJax for any mathematical content:
+  * Add this script in <head>: <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+  * Use \\( ... \\) for inline math and \\[ ... \\] for display math
+  * NEVER use raw LaTeX without MathJax delimiters
+
+OUTPUT FORMAT:
+1. First, briefly outline your structural and styling decisions (2-4 sentences)
+2. Then output the complete HTML document wrapped in ```html ... ```
+3. Finish the HTML with todays date and a short correlated and signal dense quote, insight or poem. """
+
+    html_prompt = html_prompt_template.format(image_filename=image_filename, todays_date=todays_date)
+
+    # Continuation prompt for when we have partial HTML from a failed stream
+    continuation_prompt_template = """The previous generation was interrupted. Here's what was generated so far:
+
+--- PREVIOUS ANALYSIS ---
+{analysis}
+
+--- PARTIAL HTML (interrupted) ---
+{partial_html}
+
+Please CONTINUE the HTML from exactly where it stopped. Do not restart - just continue writing from the interruption point to complete the document. Make sure to properly close all open tags and complete the HTML structure.
+
+Continue the HTML now (no explanation, just the remaining HTML):"""
+
+    print(colored("\n========== PHASE 1: ANALYZING IMAGE ==========", "cyan", attrs=["bold"]))
+    print(colored(f"Image: {image_filename}", "cyan"))
+    print(colored("===============================================\n", "cyan", attrs=["bold"]))
+
+    # Track state across model fallbacks
+    completed_analysis = None
+    partial_html = None
+
+    # Model fallback loop
+    for model_idx, model_name in enumerate(GEMINI_CANDIDATE_MODELS):
+        try:
+            print(colored(f"\n[TRYING MODEL: {model_name}]", "white", attrs=["bold"]))
+            model = genai.GenerativeModel(model_name)
+
+            # Start a chat session for multi-turn conversation
+            chat = model.start_chat(history=[])
+
+            # Phase 1: Analysis (skip if we already have it from a previous model)
+            if completed_analysis is None:
+                print(colored("\n--- Analysis ---", "yellow", attrs=["bold"]))
+                response1 = chat.send_message(
+                    [analysis_prompt, img],
+                    stream=True,
+                    safety_settings={HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE}
+                )
+
+                analysis_text = stream_response(response1, "yellow")
+
+                if not analysis_text.strip():
+                    raise ValueError("Empty analysis response (possibly content filtered)")
+
+                completed_analysis = analysis_text
+            else:
+                # We have analysis from previous model - inject it into chat history
+                print(colored("\n--- Using previous analysis ---", "yellow", attrs=["bold"]))
+                print(colored(completed_analysis[:500] + "..." if len(completed_analysis) > 500 else completed_analysis, "yellow"))
+
+                # Send the analysis context to establish chat history
+                chat.send_message(
+                    [analysis_prompt, img],
+                    stream=False,
+                    safety_settings={HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE}
+                )
+
+            # Phase 2: Generate HTML (or continue from partial)
+            print(colored("\n\n========== PHASE 2: GENERATING HTML ==========", "cyan", attrs=["bold"]))
+            print(colored("===============================================\n", "cyan", attrs=["bold"]))
+
+            if partial_html and len(partial_html) > 100:
+                # We have partial HTML from a previous failed attempt - ask to continue
+                print(colored("--- Continuing interrupted generation ---", "magenta", attrs=["bold"]))
+                print(colored(f"[Partial HTML: {len(partial_html)} chars collected before failure]", "magenta"))
+
+                continuation_prompt = continuation_prompt_template.format(
+                    analysis=completed_analysis[:2000],  # Truncate for context limit
+                    partial_html=partial_html
+                )
+
+                response2 = chat.send_message(
+                    continuation_prompt,
+                    stream=True,
+                    safety_settings={HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE}
+                )
+
+                continuation = stream_response(response2, "green")
+                print(colored("\n===============================================", "green", attrs=["bold"]))
+
+                # Combine partial + continuation
+                html_response = partial_html + continuation
+            else:
+                # Fresh HTML generation
+                print(colored("--- HTML Generation ---", "green", attrs=["bold"]))
+                response2 = chat.send_message(
+                    html_prompt,
+                    stream=True,
+                    safety_settings={HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE}
+                )
+
+                html_response = stream_response(response2, "green")
+                print(colored("\n===============================================", "green", attrs=["bold"]))
+
+            if not html_response.strip():
+                raise ValueError("Empty HTML response (possibly content filtered)")
+
+            html_content = extract_html(html_response)
+            if html_content:
+                return html_content
+            else:
+                print(colored("\nWarning: Could not extract HTML from response. Trying next model...", "yellow"))
+                continue
+
+        except StreamingError as e:
+            # Streaming failed mid-way - preserve partial content
+            error_msg = str(e)
+            print(colored(f"\n[!] STREAM INTERRUPTED: {error_msg[:80]}...", "red"))
+
+            # Check if this was during HTML generation (we have analysis but failed during phase 2)
+            if completed_analysis and e.partial_content:
+                partial_html = (partial_html or "") + e.partial_content
+                print(colored(f"[!] Preserved {len(e.partial_content)} chars of partial HTML. Will continue with next model.", "yellow"))
+
+            if model_idx < len(GEMINI_CANDIDATE_MODELS) - 1:
+                print(colored(f"[!] Falling back to next model...", "yellow"))
+                continue
+            else:
+                # Last model failed - try to salvage what we have
+                if partial_html:
+                    html_content = extract_html(partial_html)
+                    if html_content:
+                        print(colored("[!] Salvaged partial HTML from interrupted stream.", "yellow"))
+                        return html_content
+                raise RuntimeError(f"All models failed. Last error: {error_msg}")
+
+        except Exception as e:
+            error_msg = str(e)
+
+            # Check for transient/retryable errors
+            if is_transient_error(error_msg):
+                print(colored(f"\n[!] TRANSIENT ERROR for {model_name}: {error_msg[:60]}...", "yellow"))
+                if model_idx < len(GEMINI_CANDIDATE_MODELS) - 1:
+                    print(colored("[!] Trying next model...", "yellow"))
+                    continue
+            elif "404" in error_msg or "not found" in error_msg.lower():
+                print(colored(f"\n[!] MODEL NOT FOUND: {model_name}. Skipping...", "yellow"))
+                continue
+            elif "Empty" in error_msg or "content filtered" in error_msg.lower():
+                print(colored(f"\n[!] CONTENT FILTERED for {model_name}. Trying next model...", "yellow"))
+                continue
+            elif "Invalid operation" in error_msg and "response.text" in error_msg:
+                print(colored(f"\n[!] NO VALID PARTS IN RESPONSE for {model_name}. Trying next model...", "yellow"))
+                continue
+            else:
+                raise e
+
+    raise RuntimeError("All models failed. Check your API quota and network connection.")
+
+def save_and_open_blogpost(html_content, temp_screenshot, image_filename):
+    """
+    Save HTML and screenshot to blogpost directory, then open in browser.
+
+    Args:
+        html_content: The generated HTML string
+        temp_screenshot: Path to the temporary screenshot file
+        image_filename: The image filename used in the HTML (e.g., screenshot_20260116_123456.png)
+    """
+    # Ensure blogpost directory exists
+    if not os.path.exists(BLOGPOST_DIR):
+        os.makedirs(BLOGPOST_DIR)
+        print(colored(f"Created directory: {BLOGPOST_DIR}", "white"))
+
+    # Extract timestamp from image filename for HTML filename consistency
+    # image_filename is like "screenshot_20260116_123456.png"
+    timestamp = image_filename.replace("screenshot_", "").replace(".png", "")
+    html_filename = f"blogpost_{timestamp}.html"
+
+    img_path = os.path.join(BLOGPOST_DIR, image_filename)
+    html_path = os.path.join(BLOGPOST_DIR, html_filename)
+
+    # Copy screenshot
+    shutil.copy(temp_screenshot, img_path)
+    print(colored(f"Saved image: {img_path}", "cyan"))
+
+    # Save HTML
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    print(colored(f"Saved HTML: {html_path}", "cyan"))
+
+    # Open in browser
+    print(colored(f"\nOpening in browser...", "blue"))
+    try:
+        webbrowser.register('firefox_custom', None, webbrowser.BackgroundBrowser(BROWSER_PATH))
+        browser = webbrowser.get('firefox_custom')
+    except:
+        browser = webbrowser.get()
+
+    browser.open(f"file://{html_path}")
+
+    return html_path
+
+def _rmdir_if_temp(path):
+    """Remove a per-invocation mkdtemp dir once emptied, so /tmp doesn't
+    accumulate one screenshot_blogpost_* dir per process."""
+    parent = os.path.dirname(path)
+    if os.path.basename(parent).startswith("screenshot_blogpost_"):
+        try:
+            os.rmdir(parent)
+        except OSError:
+            pass
+
+
+def cleanup(screenshot_path=None):
+    path = screenshot_path or TEMP_FILENAME
+    if os.path.exists(path):
+        os.remove(path)
+    _rmdir_if_temp(path)
+    # The child also mkdtemp'd its own (unused) dir at import — drop it too.
+    _rmdir_if_temp(TEMP_FILENAME)
+
+
+def analyze_content_and_images(text_content, image_paths, source_name):
+    """
+    First LLM call: Analyze all text and images, generate descriptions/filenames for each image.
+    Returns: (analysis_text, image_descriptions) where image_descriptions is a list of dicts
+             with 'original_path', 'filename', 'description'
+    """
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY is missing from .env file.")
+
+    genai.configure(api_key=GEMINI_API_KEY)
+
+    # Prepare image objects
+    images = []
+    for img_path in image_paths:
+        if os.path.exists(img_path):
+            images.append(Image.open(img_path))
+
+    # Build the analysis prompt
+    image_section = ""
+    if images:
+        image_section = f"\n\nYou are also provided with {len(images)} images to analyze."
+
+    analysis_prompt = f"""You are analyzing content for a blogpost.
+
+SOURCE: {source_name}
+
+=== TEXT CONTENT ===
+{text_content[:30000] if text_content else "(No text content)"}
+=== END TEXT ==={image_section}
+
+YOUR TASKS:
+1. Analyze all text content - identify main topics, key concepts, technical terms
+2. For EACH image provided, output a structured description in this exact format:
+
+IMAGE_DESCRIPTIONS_START
+{{
+  "images": [
+    {{"index": 1, "suggested_filename": "descriptive_name.png", "description": "What this image shows and its relevance"}},
+    ...
+  ]
+}}
+IMAGE_DESCRIPTIONS_END
+
+3. After the image descriptions, provide a comprehensive content analysis covering:
+   - Main subject matter and domain
+   - Key concepts and their relationships
+   - Notable data, figures, or findings
+   - Context and significance
+   - 2-3 angles for deeper exploration in the blogpost
+
+Be thorough - your analysis drives the blogpost generation."""
+
+    print(colored("\n========== PHASE 1: ANALYZING CONTENT & IMAGES ==========", "cyan", attrs=["bold"]))
+    print(colored(f"Source: {source_name}", "cyan"))
+    print(colored(f"Text length: {len(text_content) if text_content else 0} chars", "cyan"))
+    print(colored(f"Images: {len(images)}", "cyan"))
+    print(colored("==========================================================\n", "cyan", attrs=["bold"]))
+
+    for model_idx, model_name in enumerate(GEMINI_CANDIDATE_MODELS):
+        try:
+            print(colored(f"\n[TRYING MODEL: {model_name}]", "white", attrs=["bold"]))
+            model = genai.GenerativeModel(model_name)
+
+            # Build message content - text prompt + all images
+            message_content = [analysis_prompt] + images
+
+            response = model.generate_content(
+                message_content,
+                stream=True,
+                safety_settings={HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE}
+            )
+
+            analysis_text = stream_response(response, "yellow")
+
+            if not analysis_text.strip():
+                raise ValueError("Empty analysis response")
+
+            # Parse image descriptions from response
+            image_descriptions = []
+            desc_match = re.search(r'IMAGE_DESCRIPTIONS_START\s*(\{.*?\})\s*IMAGE_DESCRIPTIONS_END', analysis_text, re.DOTALL)
+            if desc_match:
+                try:
+                    desc_json = json.loads(desc_match.group(1))
+                    for i, desc in enumerate(desc_json.get('images', [])):
+                        if i < len(image_paths):
+                            image_descriptions.append({
+                                'original_path': image_paths[i],
+                                'filename': desc.get('suggested_filename', f'image_{i+1}.png'),
+                                'description': desc.get('description', '')
+                            })
+                except json.JSONDecodeError:
+                    print(colored("Warning: Could not parse image descriptions JSON", "yellow"))
+
+            # Fill in any missing descriptions
+            for i, img_path in enumerate(image_paths):
+                if i >= len(image_descriptions):
+                    image_descriptions.append({
+                        'original_path': img_path,
+                        'filename': f'image_{i+1}.png',
+                        'description': f'Image {i+1} from {source_name}'
+                    })
+
+            return analysis_text, image_descriptions
+
+        except Exception as e:
+            error_msg = str(e)
+            if is_transient_error(error_msg) and model_idx < len(GEMINI_CANDIDATE_MODELS) - 1:
+                print(colored(f"\n[!] TRANSIENT ERROR: {error_msg[:60]}... Trying next model...", "yellow"))
+                continue
+            elif "404" in error_msg or "not found" in error_msg.lower():
+                print(colored(f"\n[!] MODEL NOT FOUND: {model_name}. Skipping...", "yellow"))
+                continue
+            elif model_idx < len(GEMINI_CANDIDATE_MODELS) - 1:
+                print(colored(f"\n[!] ERROR: {error_msg[:60]}... Trying next model...", "yellow"))
+                continue
+            else:
+                raise
+
+    raise RuntimeError("All models failed during content analysis.")
+
+
+def generate_blogpost_from_content(text_content, image_descriptions, analysis_text, source_name):
+    """
+    Generate HTML blogpost from analyzed content with multiple images.
+    """
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY is missing from .env file.")
+
+    genai.configure(api_key=GEMINI_API_KEY)
+
+    todays_date = datetime.now().strftime("%B %d, %Y")
+
+    # Build image reference section for the prompt
+    image_refs = ""
+    if image_descriptions:
+        image_refs = "\n\nIMAGES AVAILABLE FOR THE BLOGPOST:\n"
+        for desc in image_descriptions:
+            image_refs += f"- {desc['filename']}: {desc['description']}\n"
+        image_refs += "\nInclude these images appropriately in your HTML using <img src=\"FILENAME\" alt=\"DESCRIPTION\">"
+
+    html_prompt = f"""Based on the analysis below, create a dense, insightful HTML blogpost.
+
+TODAY'S DATE: {todays_date}
+
+=== PREVIOUS ANALYSIS ===
+{analysis_text[:15000]}
+=== END ANALYSIS ==={image_refs}
+
+STEP 1 - PLANNING (think out loud):
+Before writing any HTML, plan your approach:
+- What sections and structure will best present this content?
+- What color scheme and typography fits the domain/topic?
+- Would any interactive elements enhance understanding? Consider:
+  * CSS animations (fade-ins, highlights, hover effects)
+  * Expandable/collapsible sections for detailed explanations
+  * Code syntax highlighting if relevant
+  * Tooltips for technical terms
+- How should the images be integrated? (gallery, inline, with captions?)
+
+STEP 2 - CONTENT REQUIREMENTS:
+- Expand on the key concepts with deeper context and scientific/technical grounding
+- Explain complex topics in an accessible but substantive way
+- Make connections to related concepts, history, or applications
+- Write in an engaging, informative style with clear sections
+
+STEP 3 - HTML/STYLING REQUIREMENTS:
+- Complete, valid HTML5 document with <!DOCTYPE html>
+- Inline CSS in a <style> tag with modern, readable typography
+- Implement the styling and interactive elements you planned above
+- Responsive design (works on mobile and desktop)
+- Proper meta tags for charset and viewport
+- Include images with appropriate styling and captions
+- LATEX SUPPORT: Include MathJax for any mathematical content:
+  * Add this script in <head>: <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+  * Use \\( ... \\) for inline math and \\[ ... \\] for display math
+  * NEVER use raw LaTeX without MathJax delimiters
+
+OUTPUT FORMAT:
+1. First, briefly outline your structural and styling decisions (2-4 sentences)
+2. Then output the complete HTML document wrapped in ```html ... ```
+3. Finish the HTML with todays date and a short correlated and signal dense quote, insight or poem. """
+
+    print(colored("\n\n========== PHASE 2: GENERATING HTML ==========", "cyan", attrs=["bold"]))
+    print(colored("===============================================\n", "cyan", attrs=["bold"]))
+
+    for model_idx, model_name in enumerate(GEMINI_CANDIDATE_MODELS):
+        try:
+            print(colored(f"\n[TRYING MODEL: {model_name}]", "white", attrs=["bold"]))
+            model = genai.GenerativeModel(model_name)
+
+            response = model.generate_content(
+                html_prompt,
+                stream=True,
+                safety_settings={HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE}
+            )
+
+            html_response = stream_response(response, "green")
+            print(colored("\n===============================================", "green", attrs=["bold"]))
+
+            if not html_response.strip():
+                raise ValueError("Empty HTML response")
+
+            html_content = extract_html(html_response)
+            if html_content:
+                return html_content
+            else:
+                print(colored("\nWarning: Could not extract HTML. Trying next model...", "yellow"))
+                continue
+
+        except Exception as e:
+            error_msg = str(e)
+            if is_transient_error(error_msg) and model_idx < len(GEMINI_CANDIDATE_MODELS) - 1:
+                print(colored(f"\n[!] TRANSIENT ERROR: {error_msg[:60]}... Trying next model...", "yellow"))
+                continue
+            elif "404" in error_msg or "not found" in error_msg.lower():
+                print(colored(f"\n[!] MODEL NOT FOUND: {model_name}. Skipping...", "yellow"))
+                continue
+            elif model_idx < len(GEMINI_CANDIDATE_MODELS) - 1:
+                print(colored(f"\n[!] ERROR: {error_msg[:60]}... Trying next model...", "yellow"))
+                continue
+            else:
+                raise
+
+    raise RuntimeError("All models failed during HTML generation.")
+
+
+def save_and_open_blogpost_content(html_content, image_descriptions, source_name):
+    """
+    Save HTML and all images to blogpost directory, then open in browser.
+    Returns the HTML path.
+    """
+    if not os.path.exists(BLOGPOST_DIR):
+        os.makedirs(BLOGPOST_DIR)
+        print(colored(f"Created directory: {BLOGPOST_DIR}", "white"))
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = re.sub(r'[^\w\-]', '_', source_name)[:30]
+    html_filename = f"blogpost_{base_name}_{timestamp}.html"
+    html_path = os.path.join(BLOGPOST_DIR, html_filename)
+
+    # Copy all images to blogpost directory
+    for desc in image_descriptions:
+        src_path = desc['original_path']
+        dst_filename = desc['filename']
+        # Ensure unique filename
+        dst_path = os.path.join(BLOGPOST_DIR, dst_filename)
+        if os.path.exists(src_path):
+            shutil.copy(src_path, dst_path)
+            print(colored(f"Saved image: {dst_filename}", "cyan"))
+
+    # Save HTML
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    print(colored(f"Saved HTML: {html_path}", "cyan"))
+
+    # Open in browser
+    print(colored(f"\nOpening in browser...", "blue"))
+    try:
+        webbrowser.register('firefox_custom', None, webbrowser.BackgroundBrowser(BROWSER_PATH))
+        browser = webbrowser.get('firefox_custom')
+    except:
+        browser = webbrowser.get()
+
+    browser.open(f"file://{html_path}")
+
+    return html_path
+
+
+def main():
+    args = parse_arguments()
+
+    # --install / --remove / --install-skill / --uninstall-skill are all handled
+    # up top, before the heavy imports, so execution never reaches here for them.
+
+    # Track usage
+    try:
+        from _shared.usage_tracker import track_usage_auto
+        track_usage_auto(__file__)
+    except ImportError:
+        pass
+
+    if args.analyze_only:
+        try:
+            # Check if we're processing content from files/text or a screenshot
+            if args.text_files is not None or args.image_files is not None or args.raw_text_file:
+                # Content mode: process text, PDFs, and images
+                all_text = []
+                all_images = []
+                source_names = []
+
+                # Create a temp directory for extracted PDF images
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                content_dir = args.content_dir
+                if not content_dir:
+                    content_dir = os.path.join(BLOGPOST_DIR, f"content_{timestamp}")
+                os.makedirs(content_dir, exist_ok=True)
+
+                # Process raw pasted text
+                if args.raw_text_file and os.path.exists(args.raw_text_file):
+                    try:
+                        with open(args.raw_text_file, 'r', encoding='utf-8') as f:
+                            raw_text = f.read().strip()
+                        if raw_text:
+                            all_text.append(f"=== PASTED TEXT ===\n{raw_text}")
+                            source_names.append("pasted_text")
+                            print(colored(f"Loaded {len(raw_text)} characters of pasted text", "green"))
+                        os.remove(args.raw_text_file)
+                    except Exception as e:
+                        print(colored(f"Warning: Could not read pasted text: {e}", "yellow"))
+
+                # Process text/PDF files
+                if args.text_files:
+                    for file_path in args.text_files:
+                        text_content, images, source_filename = get_file_content(file_path, content_dir)
+                        if text_content:
+                            all_text.append(f"=== FILE: {source_filename} ===\n{text_content}")
+                            source_names.append(source_filename)
+                        if images:
+                            all_images.extend(images[:5]) # !TODO: Find a better approach than limiting the images
+
+                # Process direct image files
+                if args.image_files:
+                    for img_path in args.image_files:
+                        if os.path.exists(img_path):
+                            all_images.append(img_path)
+                            source_names.append(os.path.basename(img_path))
+                            print(colored(f"Added image: {os.path.basename(img_path)}", "green"))
+
+                if not all_text and not all_images:
+                    print(colored("No content to process.", "red"))
+                    manual_hold_on_crash()
+                    return
+
+                # Combine sources for naming
+                combined_name = "_".join(source_names[:3])
+                if len(source_names) > 3:
+                    combined_name += f"_and_{len(source_names)-3}_more"
+
+                combined_text = "\n\n".join(all_text)
+
+                print(colored(f"\nProcessing {len(source_names)} source(s):", "cyan"))
+                for name in source_names:
+                    print(colored(f"  - {name}", "white"))
+                print(colored(f"Total images: {len(all_images)}", "cyan"))
+
+                # Phase 1: Analyze content and get image descriptions
+                analysis_text, image_descriptions = analyze_content_and_images(
+                    combined_text, all_images, combined_name
+                )
+
+                # Phase 2: Generate blogpost HTML
+                html_content = generate_blogpost_from_content(
+                    combined_text, image_descriptions, analysis_text, combined_name
+                )
+
+                if html_content is None:
+                    print(colored("Failed to generate HTML content.", "red"))
+                    manual_hold_on_crash()
+                    return
+
+                # Save and open
+                save_and_open_blogpost_content(html_content, image_descriptions, combined_name)
+
+                # Cleanup temp content directory if empty
+                try:
+                    if content_dir and os.path.exists(content_dir) and not os.listdir(content_dir):
+                        os.rmdir(content_dir)
+                except:
+                    pass
+
+                auto_close_timer(10)
+
+            else:
+                # Screenshot mode (default)
+                # Use the path the parent process actually saved to; only fall
+                # back to this process's own TEMP_FILENAME when run standalone.
+                screenshot_path = args.screenshot_path or TEMP_FILENAME
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                image_filename = f"screenshot_{timestamp}.png"
+
+                # Generate blogpost from screenshot
+                html_content = generate_blogpost(screenshot_path, image_filename)
+
+                if html_content is None:
+                    print(colored("Failed to generate HTML content.", "red"))
+                    manual_hold_on_crash()
+                    return
+
+                # Save and open
+                save_and_open_blogpost(html_content, screenshot_path, image_filename)
+
+                # Cleanup and countdown
+                cleanup(screenshot_path)
+                auto_close_timer(10)
+
+        except Exception as e:
+            print(colored(f"\nCRITICAL ERROR: {str(e)}", "red", attrs=["bold"]))
+            traceback.print_exc()
+            manual_hold_on_crash()
+        return
+
+    # Main flow: take screenshot, or fall back to content input dialog
+    screenshot_taken = take_screenshot()
+
+    if screenshot_taken:
+        # Screenshot captured successfully - launch terminal for analysis
+        launch_terminal_process()
+    else:
+        # Screenshot cancelled/failed - open content input window as fallback
+        print(colored("Screenshot cancelled. Opening content input window...", "yellow"))
+        result = open_content_dialog()
+
+        if result:
+            python_exec = sys.executable
+            script_path = os.path.abspath(__file__)
+            cmd = ["konsole", "-e", python_exec, script_path, "--analyze-only"]
+
+            # Handle pasted texts - save to temp file
+            if result.get('texts'):
+                combined_texts = "\n\n=== TEXT ENTRY ===\n".join(result['texts'])
+                temp_text_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8')
+                temp_text_file.write(combined_texts)
+                temp_text_file.close()
+                cmd.extend(["--raw-text-file", temp_text_file.name])
+
+            # Handle document files (PDFs, text files)
+            if result.get('files'):
+                cmd.append("--text-files")
+                cmd.extend(result['files'])
+
+            # Handle image files
+            if result.get('images'):
+                cmd.append("--image-files")
+                cmd.extend(result['images'])
+
+            subprocess.Popen(cmd)
+        else:
+            print(colored("No content provided. Exiting.", "yellow"))
+
+
+if __name__ == "__main__":
+    main()

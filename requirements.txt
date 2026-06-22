@@ -1,0 +1,5 @@
+google-generativeai
+python-dotenv
+pillow
+termcolor
+PyPDF2
