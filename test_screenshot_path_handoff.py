@@ -138,12 +138,12 @@ def test_parse_arguments_accepts_screenshot_path(main_mod, monkeypatch):
 def test_skill_frontmatter_name_matches_dir(main_mod):
     # The on-disk skill dir, the SKILL.md frontmatter, and the advertised
     # skill_name must all agree, or the installer GUI can't pair install/uninstall.
-    assert main_mod.SKILL_DIR.name == "screenshot-blogpost"
-    assert main_mod.SKILL_MD_CONTENT.startswith("---\nname: screenshot-blogpost\n")
+    assert main_mod.SKILL_DIR.name == "bloggen"
+    assert main_mod.SKILL_MD_CONTENT.startswith("---\nname: bloggen\n")
 
 
 def test_skill_install_uninstall_roundtrip(main_mod, monkeypatch, tmp_path):
-    skill_dir = tmp_path / "skills" / "screenshot-blogpost"
+    skill_dir = tmp_path / "skills" / "bloggen"
     skill_file = skill_dir / "SKILL.md"
     monkeypatch.setattr(main_mod, "SKILL_DIR", skill_dir)
     monkeypatch.setattr(main_mod, "SKILL_FILE", skill_file)
@@ -172,4 +172,4 @@ def test_advertise_declares_skill_name():
     import subprocess
     out = subprocess.check_output([sys.executable, str(MAIN_PY), "--advertise"], text=True)
     meta = json.loads(out)
-    assert meta[0]["skill_name"] == "screenshot-blogpost"
+    assert meta[0]["skill_name"] == "bloggen"

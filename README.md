@@ -1,7 +1,7 @@
-# screenshot-blogpost
+# BlogGen
 
-Turn a screenshot, image(s), PDF, or pasted text into a **self-contained, styled
-HTML blogpost** — Gemini analyses the supplied content, then generates a complete
+Turn a screenshot, image(s), PDF, pasted text, or the current conversation into a
+**self-contained, styled HTML blogpost** — Gemini analyses the supplied content, then generates a complete
 HTML5 article (inline responsive CSS, optional MathJax) that expands on the
 concepts it found. The result is written to disk and opened in your browser.
 
@@ -15,7 +15,7 @@ Two phases, both Gemini:
 1. **Analyse** the inputs (text + images extracted from PDFs, raw images, or
    pasted text).
 2. **Generate** a single self-contained `blogpost_<timestamp>.html` (plus any
-   referenced images) under `screenshot_blogposts/`, then open it in the browser.
+   referenced images) under `blogposts/`, then open it in the browser.
 
 ## Install
 
@@ -37,7 +37,7 @@ Optional `.env` knobs:
 | `GEMINI_API_KEY` | **required** — Gemini API key | — |
 | `COMPETENT_GEMINI_MODELS`, `STRONG_GEMINI_MODELS` | comma-separated fallback model lists, tried after the preferred model | built-in fallbacks |
 | `BROWSER_PATH` | browser to open the result | `/usr/bin/firefox` |
-| `SCREENSHOT_BLOGPOST_ENV` | explicit path to a `.env` file | — |
+| `BLOGGEN_ENV` | explicit path to a `.env` file | — |
 
 The preferred model is `gemini-3.5-flash`; the env model lists (and a small
 built-in list) act as fallbacks.
@@ -70,7 +70,7 @@ The tool prints `Saved HTML: <path>` for the generated file.
   skill). This needs the [`cli-tool-kit`](https://github.com/Probst1nator/cli-tool-kit)
   package; blogpost generation itself works without it via the CLI flags above.
 - `python main.py --install-skill` / `--uninstall-skill` register a Claude Code
-  `screenshot-blogpost` skill (`~/.claude/skills/screenshot-blogpost/SKILL.md`).
+  `bloggen` skill (`~/.claude/skills/bloggen/SKILL.md`).
 - Running with no flags opens an interactive tkinter content window if the
   optional `_shared.gui` package is available; otherwise it points you to the
   CLI flags.

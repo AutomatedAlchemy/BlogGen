@@ -2,9 +2,10 @@
 .env
 
 # Generated output
-screenshot_blogposts/
+blogposts/
 
 # Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
+CLAUDE.md

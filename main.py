@@ -9,17 +9,17 @@ from pathlib import Path
 # ================= ADVERTISEMENT =================
 if "--advertise" in sys.argv:
     metadata = [{
-        "name": "AI Screenshot Blogpost",
+        "name": "BlogGen",
         "capability": "summarize",
         "domain": "html",
         "category": "research",
-        "desktop_file": "ai_screenshot_blogpost.desktop",
+        "desktop_file": "bloggen.desktop",
         "icon": "document-edit",
-        "desc": "Generate insightful HTML blogpost from screenshot",
+        "desc": "Generate a styled, self-contained HTML blogpost from images, PDFs, or text",
         "terminal": False,
         "args": [],
         "tags": ["CLI", "Icon"],
-        "skill_name": "screenshot-blogpost",  # surfaces a Skill checkbox in the installer GUI
+        "skill_name": "bloggen",  # surfaces a Skill checkbox in the installer GUI
     }]
     print(json.dumps(metadata))
     sys.exit(0)
@@ -34,34 +34,37 @@ if ROOT_DIR not in sys.path:
 # ================= CLAUDE SKILL (single source of truth) =================
 # Edit SKILL_MD_CONTENT here, then run `python main.py --install-skill`.
 # Never hand-edit the installed file — --install-skill overwrites it.
-SKILL_DIR = Path.home() / ".claude" / "skills" / "screenshot-blogpost"
+# Legacy skill dir names this tool has shipped under; pruned on (re)install so
+# hosts that synced an older name don't keep a stale ~/.claude/skills entry.
+_LEGACY_SKILL_NAMES = ["screenshot-blogpost"]
+SKILL_DIR = Path.home() / ".claude" / "skills" / "bloggen"
 SKILL_FILE = SKILL_DIR / "SKILL.md"
 
 SKILL_MD_CONTENT = '''---
-name: screenshot-blogpost
-description: Turn a screenshot, image(s), PDF, or pasted text into a self-contained, styled HTML blogpost (Gemini-generated — analysis + responsive CSS + MathJax) saved to disk and opened in the browser. Use when the user wants visual or document content written up as a shareable HTML article — "make a blogpost from this screenshot", "turn this image/PDF into an HTML write-up", "write up what's in this screenshot", "Blogpost aus diesem Screenshot", "mach einen Artikel aus diesem Bild/PDF". NOT for plain OCR / text or LaTeX extraction (use transcribe-image) and NOT for the daily digest (use digest).
+name: bloggen
+description: Turn a screenshot, image(s), PDF, pasted text, or the current conversation into a self-contained, styled HTML blogpost (Gemini-generated — analysis + responsive CSS + MathJax) saved to disk and opened in the browser. Use when the user wants content written up as a shareable HTML article — "make a blogpost from this screenshot/image/PDF", "turn this into an HTML write-up", "write up what's in this screenshot", "turn our conversation/this discussion into a blogpost", "Blogpost aus diesem Screenshot/Bild/PDF", "mach aus unserem Gespräch einen Artikel". NOT for plain OCR / text or LaTeX extraction (use transcribe-image) and NOT for the daily digest (use digest).
 ---
 
-# screenshot-blogpost — image/PDF/text -> styled HTML blogpost
+# BlogGen — image/PDF/text/conversation -> styled HTML blogpost
 
 Two-phase Gemini tool: it first *analyzes* the supplied content (text + images),
 then *generates* a complete, self-contained HTML5 blogpost (inline CSS,
 responsive layout, optional MathJax) that expands on the concepts it found. The
-HTML and any referenced images are written to the tool's `screenshot_blogposts/`
+HTML and any referenced images are written to the tool's `blogposts/`
 directory and opened in Firefox.
 
 ## Invocation — use absolute paths, NOT the alias/desktop entry
 
 Run the tool's headless `--analyze-only` content mode directly. Re-define these
 in **every** Bash call (shell state does not persist between calls). The
-`SCREENSHOT_BLOGPOST_ENV` export points the tool at the fleet `.env`
+`BLOGGEN_ENV` export points the tool at the fleet `.env`
 (`GEMINI_API_KEY` + shared model lists) — the tool parses it with python-dotenv,
 which handles the multi-line model lists that a shell `source` chokes on:
 
 ```bash
 PY=/home/prob/Synced/repos/prob_ubuntu_environment/Py3EnvShare/bin/python3
-SB=/home/prob/Synced/repos/AutomatedAlchemy/screenshot-blogpost/main.py
-export SCREENSHOT_BLOGPOST_ENV=/home/prob/Synced/repos/tools/.env
+SB=/home/prob/Synced/repos/AutomatedAlchemy/bloggen/main.py
+export BLOGGEN_ENV=/home/prob/Synced/repos/tools/.env
 ```
 
 ## Commands
@@ -76,7 +79,8 @@ export SCREENSHOT_BLOGPOST_ENV=/home/prob/Synced/repos/tools/.env
 # From a single screenshot/image (screenshot-specific prompt + hero image)
 "$PY" "$SB" --analyze-only --screenshot-path /path/shot.png
 
-# From literal/pasted text — write it to a file first, then pass it
+# From literal/pasted text, or from the current conversation — write it to a
+# file first (summarise the discussion into it), then pass it
 printf '%s' "the text to write up" > /tmp/sb_text.txt
 "$PY" "$SB" --analyze-only --raw-text-file /tmp/sb_text.txt
 
@@ -86,7 +90,7 @@ printf '%s' "the text to write up" > /tmp/sb_text.txt
 
 ## Output
 - Saves `blogpost_<...>.html` (plus copied images) under
-  `.../AutomatedAlchemy/screenshot-blogpost/screenshot_blogposts/` and prints the
+  `.../AutomatedAlchemy/bloggen/blogposts/` and prints the
   path as `Saved HTML: <path>` — read that line back to the user.
 - Auto-opens the result in Firefox.
 - Non-interactive runs (Claude's Bash tool) skip the end-of-run countdown and
@@ -102,8 +106,26 @@ printf '%s' "the text to write up" > /tmp/sb_text.txt
 '''
 
 
+def _prune_legacy_skill_dirs() -> None:
+    """Drop skill dirs from previous names of this tool (e.g. screenshot-blogpost)."""
+    skills_root = SKILL_DIR.parent
+    for legacy in _LEGACY_SKILL_NAMES:
+        legacy_dir = skills_root / legacy
+        if legacy_dir == SKILL_DIR or not legacy_dir.exists():
+            continue
+        legacy_file = legacy_dir / "SKILL.md"
+        try:
+            if legacy_file.exists():
+                legacy_file.unlink()
+            legacy_dir.rmdir()  # only if now empty
+            print(f"  Pruned legacy skill dir: {legacy_dir}")
+        except OSError:
+            pass
+
+
 def _install_skill() -> None:
-    """Write (or refresh) ~/.claude/skills/screenshot-blogpost/SKILL.md from the inline source."""
+    """Write (or refresh) ~/.claude/skills/bloggen/SKILL.md from the inline source."""
+    _prune_legacy_skill_dirs()
     SKILL_DIR.mkdir(parents=True, exist_ok=True)
     pre_existed = SKILL_FILE.exists()
     if pre_existed and SKILL_FILE.read_text(encoding="utf-8") == SKILL_MD_CONTENT:
@@ -116,7 +138,8 @@ def _install_skill() -> None:
 
 
 def _uninstall_skill() -> None:
-    """Remove ~/.claude/skills/screenshot-blogpost/SKILL.md (and the empty dir)."""
+    """Remove ~/.claude/skills/bloggen/SKILL.md (and the empty dir)."""
+    _prune_legacy_skill_dirs()
     if SKILL_FILE.exists():
         SKILL_FILE.unlink()
         print(f"  Removed {SKILL_FILE}")
@@ -155,10 +178,10 @@ if "--install" in sys.argv or "--remove" in sys.argv:
     _installer = ToolInstaller(
         script_path=__file__,
         metadata=ToolMetadata(
-            name="AI Screenshot Blogpost",
-            desktop_file="ai_screenshot_blogpost.desktop",
+            name="BlogGen",
+            desktop_file="bloggen.desktop",
             icon="document-edit",
-            desc="Generate insightful HTML blogpost from screenshot",
+            desc="Generate a styled, self-contained HTML blogpost from images, PDFs, or text",
             categories="Utility;Office;",
         ),
     )
@@ -199,7 +222,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # parent/repo root is still found). If none exist we fall back to the process
 # environment (e.g. GEMINI_API_KEY exported by the shell), so the tool stays
 # usable both standalone and inside a larger workspace.
-_env_override = os.environ.get("SCREENSHOT_BLOGPOST_ENV")
+_env_override = os.environ.get("BLOGGEN_ENV") or os.environ.get("SCREENSHOT_BLOGPOST_ENV")
 _local_env = os.path.join(SCRIPT_DIR, ".env")
 _env_path = _env_override or (_local_env if os.path.exists(_local_env) else find_dotenv(usecwd=False))
 if _env_path:
@@ -235,9 +258,9 @@ BROWSER_PATH = os.getenv("BROWSER_PATH", "/usr/bin/firefox")
 # (a local attacker on a shared host could pre-symlink it at any writable target).
 import tempfile as _tempfile
 TEMP_FILENAME = os.path.join(
-    _tempfile.mkdtemp(prefix="screenshot_blogpost_"), "screenshot.png"
+    _tempfile.mkdtemp(prefix="bloggen_"), "screenshot.png"
 )
-BLOGPOST_DIR = os.path.join(SCRIPT_DIR, "screenshot_blogposts")
+BLOGPOST_DIR = os.path.join(SCRIPT_DIR, "blogposts")
 
 # ================= UTILS & INSTALLATION =================
 
@@ -297,6 +320,310 @@ def manual_hold_on_crash():
         input(colored("Press Enter to close terminal...", "white", attrs=["bold"]))
     except:
         pass
+
+def get_cursor_position():
+    if not sys.stdin.isatty():
+        return 1, 1
+    old_settings = termios.tcgetattr(sys.stdin)
+    try:
+        tty.setcbreak(sys.stdin.fileno())
+        sys.stdout.write("\033[6n")
+        sys.stdout.flush()
+        resp = ""
+        while True:
+            char = sys.stdin.read(1)
+            resp += char
+            if char == 'R':
+                break
+        m = re.match(r'.*?\[(\d+);(\d+)R', resp)
+        if m:
+            return int(m.group(1)), int(m.group(2))
+    except Exception:
+        pass
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+    return 1, 1
+
+def read_input_event():
+    char = sys.stdin.read(1)
+    if char == '\x1b':
+        seq = char
+        # Drain all immediately-available bytes (up to 32) with a short timeout
+        # so we capture multi-byte sequences like arrow keys, SGR mouse reports,
+        # and application-cursor-key sequences (\x1bOA etc.) in one go.
+        while select.select([sys.stdin], [], [], 0.05)[0]:
+            next_char = sys.stdin.read(1)
+            seq += next_char
+            if next_char in ('A', 'B', 'C', 'D', 'M', 'm', '~', 'H', 'F', 'P', 'Q', 'R', 'S'):
+                break
+        return seq
+    return char
+
+def parse_sgr_mouse(seq):
+    m = re.match(r'^\x1b\[<(\d+);(\d+);(\d+);([Mm])$', seq)
+    if m:
+        pb = int(m.group(1))
+        px = int(m.group(2))
+        py = int(m.group(3))
+        is_press = m.group(4) == 'M'
+        return pb, px, py, is_press
+    return None
+
+def flush_stdin():
+    if not sys.stdin.isatty():
+        return
+    try:
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    except:
+        pass
+
+def draw_menu(R_start, active_index):
+    sys.stdout.write(f"\033[{R_start};1H")
+    border_color = "cyan"
+    title_color = "white"
+    b1_text = "     1. Enter Prompt     "
+    b2_text = "   2. Take Screenshot    "
+    b3_text = "         3. Exit         "
+    if active_index == 0:
+        b1_disp = colored(b1_text, "white", "on_blue", attrs=["bold"])
+    else:
+        b1_disp = colored(b1_text, "dark_grey")
+    if active_index == 1:
+        b2_disp = colored(b2_text, "white", "on_blue", attrs=["bold"])
+    else:
+        b2_disp = colored(b2_text, "dark_grey")
+    if active_index == 2:
+        b3_disp = colored(b3_text, "white", "on_blue", attrs=["bold"])
+    else:
+        b3_disp = colored(b3_text, "dark_grey")
+    sys.stdout.write(colored("┌─────────────────────────────────────────────────────────────────────────────┐\n", border_color))
+    sys.stdout.write(colored("│", border_color) + colored("                               CHOOSE AN ACTION                              ", title_color, attrs=["bold"]) + colored("│\n", border_color))
+    sys.stdout.write(colored("├──────────────────────────┬──────────────────────────┬───────────────────────┤\n", border_color))
+    sys.stdout.write(colored("│", border_color) + b1_disp + colored("│", border_color) + b2_disp + colored("│", border_color) + b3_disp + colored("│\n", border_color))
+    sys.stdout.write(colored("└──────────────────────────┴──────────────────────────┴───────────────────────┘\n", border_color))
+    sys.stdout.flush()
+
+def save_and_open_followup_blogpost(html_content, combined_name):
+    if not os.path.exists(BLOGPOST_DIR):
+        os.makedirs(BLOGPOST_DIR)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = re.sub(r'[^\w\-]', '_', combined_name)[:30]
+    html_filename = f"blogpost_{base_name}_{timestamp}.html"
+    html_path = os.path.join(BLOGPOST_DIR, html_filename)
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    print(colored(f"Saved follow-up HTML: {html_path}", "cyan"))
+    print(colored(f"\nOpening in browser...", "blue"))
+    try:
+        webbrowser.register('firefox_custom', None, webbrowser.BackgroundBrowser(BROWSER_PATH))
+        browser = webbrowser.get('firefox_custom')
+    except:
+        browser = webbrowser.get()
+    browser.open(f"file://{html_path}")
+    return html_path
+
+def generate_followup_blogpost(chat, prompt_message):
+    history = list(chat.history)
+    for model_idx, model_name in enumerate(GEMINI_CANDIDATE_MODELS):
+        try:
+            print(colored(f"\n[TRYING MODEL: {model_name}] for follow-up", "white", attrs=["bold"]))
+            model = genai.GenerativeModel(model_name)
+            new_chat = model.start_chat(history=history)
+            print(colored("\n--- Follow-up HTML Generation ---", "green", attrs=["bold"]))
+            response = new_chat.send_message(
+                prompt_message,
+                stream=True,
+                safety_settings={HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE}
+            )
+            html_response = stream_response(response, "green")
+            print(colored("\n===============================================", "green", attrs=["bold"]))
+            if not html_response.strip():
+                raise ValueError("Empty HTML response")
+            html_content = extract_html(html_response)
+            if html_content:
+                return html_content, new_chat
+            else:
+                print(colored("\nWarning: Could not extract HTML. Trying next model...", "yellow"))
+                continue
+        except Exception as e:
+            error_msg = str(e)
+            if is_transient_error(error_msg) and model_idx < len(GEMINI_CANDIDATE_MODELS) - 1:
+                print(colored(f"\n[!] TRANSIENT ERROR: {error_msg[:60]}... Trying next model...", "yellow"))
+                continue
+            elif "404" in error_msg or "not found" in error_msg.lower():
+                print(colored(f"\n[!] MODEL NOT FOUND: {model_name}. Skipping...", "yellow"))
+                continue
+            elif model_idx < len(GEMINI_CANDIDATE_MODELS) - 1:
+                print(colored(f"\n[!] ERROR: {error_msg[:60]}... Trying next model...", "yellow"))
+                continue
+            else:
+                raise
+    raise RuntimeError("All models failed during follow-up HTML generation.")
+
+def handle_action(action_idx, chat, last_image_filename, combined_name, R_start, old_settings):
+    sys.stdout.write("\033[?1000l\033[?1006l\033[?25h\n")
+    sys.stdout.flush()
+    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+    flush_stdin()
+    if action_idx == 2:
+        print(colored("Exiting. Goodbye!", "cyan"))
+        return True, chat
+    if action_idx == 0:
+        print(colored("\n--- ENTER PROMPT ---", "cyan", attrs=["bold"]))
+        try:
+            user_prompt = input("Enter your prompt: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print(colored("\nPrompt cancelled.", "yellow"))
+            return False, chat
+        if not user_prompt:
+            print(colored("Empty prompt. Continuing...", "yellow"))
+            return False, chat
+        prompt_message = f"""USER REQUEST:
+{user_prompt}
+
+YOUR TASK:
+1. Plan your approach (think out loud): What changes/additions/updates are needed based on the user request?
+2. Generate another complete, updated HTML blogpost from scratch. Do not just output fragments - write the entire self-contained HTML5 document.
+3. Include the original/existing images (if any) using their filenames.
+4. Output the complete HTML wrapped in ```html ... ```."""
+        try:
+            html_content, new_chat = generate_followup_blogpost(chat, prompt_message)
+            if html_content:
+                save_and_open_followup_blogpost(html_content, combined_name)
+                chat = new_chat
+        except Exception as e:
+            print(colored(f"\nError generating blogpost: {e}", "red"))
+            traceback.print_exc()
+    elif action_idx == 1:
+        print(colored("\n--- TAKE SCREENSHOT ---", "cyan", attrs=["bold"]))
+        print(colored("Please select a region for the new screenshot...", "yellow"))
+        screenshot_taken = take_screenshot()
+        if not screenshot_taken:
+            print(colored("Screenshot cancelled or failed.", "yellow"))
+            return False, chat
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        new_image_filename = f"screenshot_{timestamp}.png"
+        if not os.path.exists(BLOGPOST_DIR):
+            os.makedirs(BLOGPOST_DIR)
+        new_img_path = os.path.join(BLOGPOST_DIR, new_image_filename)
+        try:
+            shutil.copy(TEMP_FILENAME, new_img_path)
+            print(colored(f"Saved new image: {new_img_path}", "cyan"))
+        except Exception as e:
+            print(colored(f"Failed to copy screenshot: {e}", "red"))
+            return False, chat
+        finally:
+            cleanup(TEMP_FILENAME)
+        prompt_text = f"""Here is a new screenshot.
+
+YOUR TASK:
+1. Observe the new image and analyze its content.
+2. Plan your approach (think out loud): How will you integrate this new screenshot/information into the blogpost?
+3. Generate another complete, updated HTML blogpost from scratch. Make sure to present both the original content and this new screenshot/information.
+4. Use the new screenshot filename: {new_image_filename} (include it as <img src="{new_image_filename}">).
+5. Output the complete HTML wrapped in ```html ... ```."""
+        try:
+            img = Image.open(new_img_path)
+            prompt_message = [prompt_text, img]
+            html_content, new_chat = generate_followup_blogpost(chat, prompt_message)
+            if html_content:
+                save_and_open_followup_blogpost(html_content, combined_name)
+                chat = new_chat
+        except Exception as e:
+            print(colored(f"\nError generating blogpost: {e}", "red"))
+            traceback.print_exc()
+    return False, chat
+
+def run_interactive_loop(chat, last_image_filename, combined_name):
+    if not sys.stdin.isatty():
+        return
+    print(colored("\nTerminal kept open. Keyboard & stylus control enabled.", "green", attrs=["bold"]))
+    R_start, _ = get_cursor_position()
+    print("\n\n\n\n")
+    R_start, _ = get_cursor_position()
+    R_start = max(1, R_start - 5)
+    active_index = 0
+    draw_menu(R_start, active_index)
+    sys.stdout.write("\033[?1000h\033[?1006h\033[?25l")
+    sys.stdout.flush()
+    old_settings = termios.tcgetattr(sys.stdin)
+    try:
+        tty.setcbreak(sys.stdin.fileno())
+        while True:
+            if select.select([sys.stdin], [], [], 0.1)[0]:
+                event = read_input_event()
+                if not event:
+                    continue
+                if event == '\r' or event == '\n':
+                    action_idx = active_index
+                    break_loop, chat = handle_action(action_idx, chat, last_image_filename, combined_name, R_start, old_settings)
+                    if break_loop:
+                        break
+                    R_start, _ = get_cursor_position()
+                    print("\n\n\n\n")
+                    R_start, _ = get_cursor_position()
+                    R_start = max(1, R_start - 5)
+                    sys.stdout.write("\033[?1000h\033[?1006h\033[?25l")
+                    sys.stdout.flush()
+                    draw_menu(R_start, active_index)
+                # Arrow keys: normal mode (\x1b[A/B/C/D) AND
+                # application cursor mode (\x1bOA/B/C/D) — Konsole switches
+                # to application mode when SGR mouse reporting is active.
+                elif event in ('\x1b[A', '\x1b[D', '\x1bOA', '\x1bOD'):
+                    active_index = (active_index - 1) % 3
+                    draw_menu(R_start, active_index)
+                elif event in ('\x1b[B', '\x1b[C', '\x1bOB', '\x1bOC'):
+                    active_index = (active_index + 1) % 3
+                    draw_menu(R_start, active_index)
+                # Number key shortcuts: 1 / 2 / 3
+                elif event in ('1', '2', '3'):
+                    action_idx = int(event) - 1
+                    active_index = action_idx
+                    draw_menu(R_start, active_index)
+                    break_loop, chat = handle_action(action_idx, chat, last_image_filename, combined_name, R_start, old_settings)
+                    if break_loop:
+                        break
+                    R_start, _ = get_cursor_position()
+                    print("\n\n\n\n")
+                    R_start, _ = get_cursor_position()
+                    R_start = max(1, R_start - 5)
+                    sys.stdout.write("\033[?1000h\033[?1006h\033[?25l")
+                    sys.stdout.flush()
+                    draw_menu(R_start, active_index)
+                elif event.startswith('\x1b[<'):
+                    parsed = parse_sgr_mouse(event)
+                    if parsed:
+                        pb, px, py, is_press = parsed
+                        # Button row is the 4th line of the 5-line menu box
+                        if py == R_start + 3:
+                            clicked_idx = -1
+                            if 2 <= px <= 26:
+                                clicked_idx = 0
+                            elif 28 <= px <= 52:
+                                clicked_idx = 1
+                            elif 54 <= px <= 78:
+                                clicked_idx = 2
+                            if clicked_idx != -1:
+                                if clicked_idx != active_index:
+                                    active_index = clicked_idx
+                                    draw_menu(R_start, active_index)
+                                # Fire on press (M) so stylus/touch works even
+                                # without a release event; ignore drag buttons.
+                                if is_press and pb in (0, 1, 2, 64, 65):
+                                    break_loop, chat = handle_action(clicked_idx, chat, last_image_filename, combined_name, R_start, old_settings)
+                                    if break_loop:
+                                        break
+                                    R_start, _ = get_cursor_position()
+                                    print("\n\n\n\n")
+                                    R_start, _ = get_cursor_position()
+                                    R_start = max(1, R_start - 5)
+                                    sys.stdout.write("\033[?1000h\033[?1006h\033[?25l")
+                                    sys.stdout.flush()
+                                    draw_menu(R_start, active_index)
+    finally:
+        sys.stdout.write("\033[?1000l\033[?1006l\033[?25h")
+        sys.stdout.flush()
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 
 # ================= FILE INPUT FALLBACK =================
 
@@ -705,6 +1032,7 @@ Continue the HTML now (no explanation, just the remaining HTML):"""
     # Track state across model fallbacks
     completed_analysis = None
     partial_html = None
+    chat = None
 
     # Model fallback loop
     for model_idx, model_name in enumerate(GEMINI_CANDIDATE_MODELS):
@@ -784,7 +1112,7 @@ Continue the HTML now (no explanation, just the remaining HTML):"""
 
             html_content = extract_html(html_response)
             if html_content:
-                return html_content
+                return html_content, chat
             else:
                 print(colored("\nWarning: Could not extract HTML from response. Trying next model...", "yellow"))
                 continue
@@ -808,7 +1136,7 @@ Continue the HTML now (no explanation, just the remaining HTML):"""
                     html_content = extract_html(partial_html)
                     if html_content:
                         print(colored("[!] Salvaged partial HTML from interrupted stream.", "yellow"))
-                        return html_content
+                        return html_content, chat
                 raise RuntimeError(f"All models failed. Last error: {error_msg}")
 
         except Exception as e:
@@ -879,9 +1207,9 @@ def save_and_open_blogpost(html_content, temp_screenshot, image_filename):
 
 def _rmdir_if_temp(path):
     """Remove a per-invocation mkdtemp dir once emptied, so /tmp doesn't
-    accumulate one screenshot_blogpost_* dir per process."""
+    accumulate one bloggen_* dir per process."""
     parent = os.path.dirname(path)
-    if os.path.basename(parent).startswith("screenshot_blogpost_"):
+    if os.path.basename(parent).startswith("bloggen_"):
         try:
             os.rmdir(parent)
         except OSError:
@@ -999,7 +1327,7 @@ Be thorough - your analysis drives the blogpost generation."""
                         'description': f'Image {i+1} from {source_name}'
                     })
 
-            return analysis_text, image_descriptions
+            return analysis_text, image_descriptions, message_content
 
         except Exception as e:
             error_msg = str(e)
@@ -1018,7 +1346,7 @@ Be thorough - your analysis drives the blogpost generation."""
     raise RuntimeError("All models failed during content analysis.")
 
 
-def generate_blogpost_from_content(text_content, image_descriptions, analysis_text, source_name):
+def generate_blogpost_from_content(text_content, image_descriptions, analysis_text, source_name, message_content=None):
     """
     Generate HTML blogpost from analyzed content with multiple images.
     """
@@ -1082,12 +1410,21 @@ OUTPUT FORMAT:
     print(colored("\n\n========== PHASE 2: GENERATING HTML ==========", "cyan", attrs=["bold"]))
     print(colored("===============================================\n", "cyan", attrs=["bold"]))
 
+    history = []
+    if message_content and analysis_text:
+        history = [
+            {"role": "user", "parts": message_content},
+            {"role": "model", "parts": [analysis_text]}
+        ]
+
+    chat = None
     for model_idx, model_name in enumerate(GEMINI_CANDIDATE_MODELS):
         try:
             print(colored(f"\n[TRYING MODEL: {model_name}]", "white", attrs=["bold"]))
             model = genai.GenerativeModel(model_name)
+            chat = model.start_chat(history=history)
 
-            response = model.generate_content(
+            response = chat.send_message(
                 html_prompt,
                 stream=True,
                 safety_settings={HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE}
@@ -1101,7 +1438,7 @@ OUTPUT FORMAT:
 
             html_content = extract_html(html_response)
             if html_content:
-                return html_content
+                return html_content, chat
             else:
                 print(colored("\nWarning: Could not extract HTML. Trying next model...", "yellow"))
                 continue
@@ -1243,13 +1580,13 @@ def main():
                 print(colored(f"Total images: {len(all_images)}", "cyan"))
 
                 # Phase 1: Analyze content and get image descriptions
-                analysis_text, image_descriptions = analyze_content_and_images(
+                analysis_text, image_descriptions, message_content = analyze_content_and_images(
                     combined_text, all_images, combined_name
                 )
 
                 # Phase 2: Generate blogpost HTML
-                html_content = generate_blogpost_from_content(
-                    combined_text, image_descriptions, analysis_text, combined_name
+                html_content, chat = generate_blogpost_from_content(
+                    combined_text, image_descriptions, analysis_text, combined_name, message_content
                 )
 
                 if html_content is None:
@@ -1267,7 +1604,7 @@ def main():
                 except:
                     pass
 
-                auto_close_timer(10)
+                run_interactive_loop(chat, image_descriptions[0]['filename'] if image_descriptions else None, combined_name)
 
             else:
                 # Screenshot mode (default)
@@ -1278,7 +1615,7 @@ def main():
                 image_filename = f"screenshot_{timestamp}.png"
 
                 # Generate blogpost from screenshot
-                html_content = generate_blogpost(screenshot_path, image_filename)
+                html_content, chat = generate_blogpost(screenshot_path, image_filename)
 
                 if html_content is None:
                     print(colored("Failed to generate HTML content.", "red"))
@@ -1290,7 +1627,7 @@ def main():
 
                 # Cleanup and countdown
                 cleanup(screenshot_path)
-                auto_close_timer(10)
+                run_interactive_loop(chat, image_filename, image_filename.replace(".png", ""))
 
         except Exception as e:
             print(colored(f"\nCRITICAL ERROR: {str(e)}", "red", attrs=["bold"]))
