@@ -349,18 +349,22 @@ def manual_hold_on_crash():
 def get_cursor_position():
     if not sys.stdin.isatty():
         return 1, 1
+    fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(sys.stdin)
     try:
-        tty.setcbreak(sys.stdin.fileno())
+        tty.setcbreak(fd)
         sys.stdout.write("\033[6n")
         sys.stdout.flush()
-        resp = ""
+        # Read at the raw fd level (os.read) rather than through the buffered
+        # sys.stdin text stream. Mixing the two loses bytes: sys.stdin.read()
+        # may slurp trailing bytes into Python's internal buffer where a later
+        # os.read()/select() can't see them.
+        resp = b""
         while True:
-            char = sys.stdin.read(1)
-            resp += char
-            if char == 'R':
+            resp += os.read(fd, 1)
+            if resp.endswith(b'R'):
                 break
-        m = re.match(r'.*?\[(\d+);(\d+)R', resp)
+        m = re.match(rb'.*?\[(\d+);(\d+)R', resp)
         if m:
             return int(m.group(1)), int(m.group(2))
     except Exception:
@@ -370,22 +374,46 @@ def get_cursor_position():
     return 1, 1
 
 def read_input_event():
-    char = sys.stdin.read(1)
-    if char == '\x1b':
-        seq = char
-        # Drain all immediately-available bytes (up to 32) with a short timeout
-        # so we capture multi-byte sequences like arrow keys, SGR mouse reports,
-        # and application-cursor-key sequences (\x1bOA etc.) in one go.
-        while select.select([sys.stdin], [], [], 0.05)[0]:
-            next_char = sys.stdin.read(1)
-            seq += next_char
-            if next_char in ('A', 'B', 'C', 'D', 'M', 'm', '~', 'H', 'F', 'P', 'Q', 'R', 'S'):
+    # Read at the raw fd level (os.read) rather than through the buffered
+    # sys.stdin text stream. sys.stdin.read(1) can slurp a whole chunk into
+    # Python's internal buffer and hand back one char; a subsequent select()
+    # on the fd then reports "nothing available" (the bytes are hidden in the
+    # buffer, not the OS), so a multi-byte escape sequence fragments and stray
+    # coordinate digits leak out as phantom "1/2/3" hotkey presses. os.read +
+    # fd-level select keeps select() honest.
+    fd = sys.stdin.fileno()
+    ch = os.read(fd, 1)
+    if ch != b'\x1b':
+        return ch.decode('utf-8', 'ignore')
+    seq = ch
+    # We saw ESC — assemble the full escape sequence. Under high-frequency mouse
+    # motion reporting (mode 1003) the bytes of a sequence can dribble in across
+    # scheduler gaps, so once we know it's a CSI/SS3 sequence we keep reading
+    # until its terminating byte instead of bailing on a short per-byte timeout.
+    if not select.select([fd], [], [], 0.2)[0]:
+        return '\x1b'  # lone ESC (Escape key)
+    seq += os.read(fd, 1)
+    if seq[-1:] == b'[':
+        # CSI sequence: parameter/intermediate bytes (0x20-0x3F) then a final
+        # byte in 0x40-0x7E ('@'..'~'). Covers arrows (A/B/C/D), SGR mouse
+        # (M/m) and cursor-position reports (R).
+        while True:
+            if not select.select([fd], [], [], 0.5)[0]:
                 break
-        return seq
-    return char
+            c = os.read(fd, 1)
+            seq += c
+            if 0x40 <= c[0] <= 0x7e:
+                break
+    elif seq[-1:] == b'O':
+        # SS3 sequence (application cursor keys: \x1bOA etc.) — one more byte.
+        if select.select([fd], [], [], 0.5)[0]:
+            seq += os.read(fd, 1)
+    return seq.decode('utf-8', 'ignore')
 
 def parse_sgr_mouse(seq):
-    m = re.match(r'^\x1b\[<(\d+);(\d+);(\d+);([Mm])$', seq)
+    # SGR mouse report format is "\x1b[<btn;col;row" then a single terminator
+    # 'M' (press/motion) or 'm' (release) — no semicolon before the terminator.
+    m = re.match(r'^\x1b\[<(\d+);(\d+);(\d+)([Mm])$', seq)
     if m:
         pb = int(m.group(1))
         px = int(m.group(2))
@@ -421,11 +449,19 @@ def draw_menu(R_start, active_index):
         b3_disp = colored(b3_text, "white", "on_blue", attrs=["bold"])
     else:
         b3_disp = colored(b3_text, "dark_grey")
-    sys.stdout.write(colored("┌─────────────────────────────────────────────────────────────────────────────┐\n", border_color))
-    sys.stdout.write(colored("│", border_color) + colored("                               CHOOSE AN ACTION                              ", title_color, attrs=["bold"]) + colored("│\n", border_color))
-    sys.stdout.write(colored("├──────────────────────────┬──────────────────────────┬───────────────────────┤\n", border_color))
+    # Each button cell is 25 columns wide, so every horizontal rule must split
+    # its 77 inner columns as 25/25/25 (with two connectors) for the ┬/┴ joints
+    # to line up under the │ dividers in the button row. (They were 26/26/23,
+    # which drifted every connector one column to the right.)
+    seg = "─" * 25
+    top_row = "┌" + "─" * 77 + "┐"
+    mid_row = "├" + seg + "┬" + seg + "┬" + seg + "┤"
+    bot_row = "└" + seg + "┴" + seg + "┴" + seg + "┘"
+    sys.stdout.write(colored(top_row + "\n", border_color))
+    sys.stdout.write(colored("│", border_color) + colored("CHOOSE AN ACTION".center(77), title_color, attrs=["bold"]) + colored("│\n", border_color))
+    sys.stdout.write(colored(mid_row + "\n", border_color))
     sys.stdout.write(colored("│", border_color) + b1_disp + colored("│", border_color) + b2_disp + colored("│", border_color) + b3_disp + colored("│\n", border_color))
-    sys.stdout.write(colored("└──────────────────────────┴──────────────────────────┴───────────────────────┘\n", border_color))
+    sys.stdout.write(colored(bot_row + "\n", border_color))
     sys.stdout.flush()
 
 def save_and_open_followup_blogpost(html_content, combined_name):
@@ -487,7 +523,7 @@ def generate_followup_blogpost(chat, prompt_message):
     raise RuntimeError("All models failed during follow-up HTML generation.")
 
 def handle_action(action_idx, chat, last_image_filename, combined_name, R_start, old_settings):
-    sys.stdout.write("\033[?1000l\033[?1006l\033[?25h\n")
+    sys.stdout.write("\033[?1003l\033[?1006l\033[?25h\n")
     sys.stdout.flush()
     termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
     flush_stdin()
@@ -570,7 +606,7 @@ def run_interactive_loop(chat, last_image_filename, combined_name):
     R_start = max(1, R_start - 5)
     active_index = 0
     draw_menu(R_start, active_index)
-    sys.stdout.write("\033[?1000h\033[?1006h\033[?25l")
+    sys.stdout.write("\033[?1003h\033[?1006h\033[?25l")
     sys.stdout.flush()
     old_settings = termios.tcgetattr(sys.stdin)
     try:
@@ -589,7 +625,12 @@ def run_interactive_loop(chat, last_image_filename, combined_name):
                     print("\n\n\n\n")
                     R_start, _ = get_cursor_position()
                     R_start = max(1, R_start - 5)
-                    sys.stdout.write("\033[?1000h\033[?1006h\033[?25l")
+                    # handle_action() restored the terminal to cooked/echo mode
+                    # (old_settings); re-enter cbreak before re-enabling mouse
+                    # reporting, else the incoming mouse escape codes get echoed
+                    # to the screen as visible garbage.
+                    tty.setcbreak(sys.stdin.fileno())
+                    sys.stdout.write("\033[?1003h\033[?1006h\033[?25l")
                     sys.stdout.flush()
                     draw_menu(R_start, active_index)
                 # Arrow keys: normal mode (\x1b[A/B/C/D) AND
@@ -613,7 +654,12 @@ def run_interactive_loop(chat, last_image_filename, combined_name):
                     print("\n\n\n\n")
                     R_start, _ = get_cursor_position()
                     R_start = max(1, R_start - 5)
-                    sys.stdout.write("\033[?1000h\033[?1006h\033[?25l")
+                    # handle_action() restored the terminal to cooked/echo mode
+                    # (old_settings); re-enter cbreak before re-enabling mouse
+                    # reporting, else the incoming mouse escape codes get echoed
+                    # to the screen as visible garbage.
+                    tty.setcbreak(sys.stdin.fileno())
+                    sys.stdout.write("\033[?1003h\033[?1006h\033[?25l")
                     sys.stdout.flush()
                     draw_menu(R_start, active_index)
                 elif event.startswith('\x1b[<'):
@@ -643,11 +689,16 @@ def run_interactive_loop(chat, last_image_filename, combined_name):
                                     print("\n\n\n\n")
                                     R_start, _ = get_cursor_position()
                                     R_start = max(1, R_start - 5)
-                                    sys.stdout.write("\033[?1000h\033[?1006h\033[?25l")
+                                    # Re-enter cbreak (handle_action left the
+                                    # terminal in cooked/echo mode) before
+                                    # re-enabling mouse reporting, else mouse
+                                    # codes echo to the screen as garbage.
+                                    tty.setcbreak(sys.stdin.fileno())
+                                    sys.stdout.write("\033[?1003h\033[?1006h\033[?25l")
                                     sys.stdout.flush()
                                     draw_menu(R_start, active_index)
     finally:
-        sys.stdout.write("\033[?1000l\033[?1006l\033[?25h")
+        sys.stdout.write("\033[?1003l\033[?1006l\033[?25h")
         sys.stdout.flush()
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 

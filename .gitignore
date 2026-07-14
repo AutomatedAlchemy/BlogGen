@@ -9,3 +9,6 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 CLAUDE.md
+
+# Menu test harness debug log
+menu_debug.log
