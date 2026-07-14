@@ -49,9 +49,9 @@ description: Turn a screenshot, image(s), PDF, pasted text, or the current conve
 
 Two-phase Gemini tool: it first *analyzes* the supplied content (text + images),
 then *generates* a complete, self-contained HTML5 blogpost (inline CSS,
-responsive layout, optional MathJax) that expands on the concepts it found. The
-HTML and any referenced images are written to the tool's `blogposts/`
-directory and opened in Firefox.
+responsive layout, optional MathJax) that expands on the concepts it found. Each
+run writes its own folder under the tool's `blogposts/` directory — an
+`index.html` plus every image it references — and opens it in Firefox.
 
 ## Invocation — use absolute paths, NOT the alias/desktop entry
 
@@ -89,9 +89,9 @@ printf '%s' "the text to write up" > /tmp/sb_text.txt
 ```
 
 ## Output
-- Saves `blogpost_<...>.html` (plus copied images) under
-  `.../AutomatedAlchemy/bloggen/blogposts/` and prints the
-  path as `Saved HTML: <path>` — read that line back to the user.
+- Saves a per-post folder `blogposts/<name>/` containing `index.html`
+  plus its images, under `.../AutomatedAlchemy/bloggen/blogposts/`, and
+  prints the path as `Saved HTML: <path>` — read that line back to the user.
 - Auto-opens the result in Firefox.
 - Non-interactive runs (Claude's Bash tool) skip the end-of-run countdown and
   return promptly.
@@ -262,6 +262,31 @@ TEMP_FILENAME = os.path.join(
 )
 BLOGPOST_DIR = os.path.join(SCRIPT_DIR, "blogposts")
 
+# Folder-per-post layout: every run gets its OWN subdirectory under blogposts/,
+# holding index.html plus all images it references. This keeps the HTML's bare
+# <img src="foo.png"> relative refs working while isolating each post. Follow-up
+# revisions within one session re-reference the original post's images by name,
+# so all revisions of a session share this single directory (established at the
+# first save, reused thereafter). See _session_post_dir().
+_SESSION_POST_DIR = None
+
+
+def _session_post_dir(base_name):
+    """Return this session's post folder under blogposts/, creating it once.
+
+    The first save in a session wins the folder name; follow-up saves reuse the
+    same folder so their images stay co-located. `base_name` is the descriptive
+    stem (no extension) the old flat filename would have used, e.g.
+    "blogpost_20260714_153904" or "blogpost_Uebung_1_pdf_20260120_112316".
+    """
+    global _SESSION_POST_DIR
+    if _SESSION_POST_DIR is None:
+        safe = re.sub(r'[^\w\-]', '_', base_name).strip('_') or "blogpost"
+        _SESSION_POST_DIR = os.path.join(BLOGPOST_DIR, safe)
+        os.makedirs(_SESSION_POST_DIR, exist_ok=True)
+    return _SESSION_POST_DIR
+
+
 # ================= UTILS & INSTALLATION =================
 
 def parse_arguments():
@@ -404,12 +429,13 @@ def draw_menu(R_start, active_index):
     sys.stdout.flush()
 
 def save_and_open_followup_blogpost(html_content, combined_name):
-    if not os.path.exists(BLOGPOST_DIR):
-        os.makedirs(BLOGPOST_DIR)
+    # A follow-up is a revised version of the current session's post: it lives in
+    # the SAME folder (already created by the first save, so this reuses it) and
+    # overwrites index.html. Its images were copied in by the original save.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base_name = re.sub(r'[^\w\-]', '_', combined_name)[:30]
-    html_filename = f"blogpost_{base_name}_{timestamp}.html"
-    html_path = os.path.join(BLOGPOST_DIR, html_filename)
+    post_dir = _session_post_dir(f"blogpost_{base_name}_{timestamp}")
+    html_path = os.path.join(post_dir, "index.html")
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html_content)
     print(colored(f"Saved follow-up HTML: {html_path}", "cyan"))
@@ -503,9 +529,9 @@ YOUR TASK:
             return False, chat
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         new_image_filename = f"screenshot_{timestamp}.png"
-        if not os.path.exists(BLOGPOST_DIR):
-            os.makedirs(BLOGPOST_DIR)
-        new_img_path = os.path.join(BLOGPOST_DIR, new_image_filename)
+        # Land the new screenshot in this session's post folder so the follow-up
+        # HTML's <img src="screenshot_...png"> resolves alongside index.html.
+        new_img_path = os.path.join(_session_post_dir(combined_name), new_image_filename)
         try:
             shutil.copy(TEMP_FILENAME, new_img_path)
             print(colored(f"Saved new image: {new_img_path}", "cyan"))
@@ -1171,18 +1197,13 @@ def save_and_open_blogpost(html_content, temp_screenshot, image_filename):
         temp_screenshot: Path to the temporary screenshot file
         image_filename: The image filename used in the HTML (e.g., screenshot_20260116_123456.png)
     """
-    # Ensure blogpost directory exists
-    if not os.path.exists(BLOGPOST_DIR):
-        os.makedirs(BLOGPOST_DIR)
-        print(colored(f"Created directory: {BLOGPOST_DIR}", "white"))
-
-    # Extract timestamp from image filename for HTML filename consistency
+    # Extract timestamp from image filename for a stable per-post folder name.
     # image_filename is like "screenshot_20260116_123456.png"
     timestamp = image_filename.replace("screenshot_", "").replace(".png", "")
-    html_filename = f"blogpost_{timestamp}.html"
+    post_dir = _session_post_dir(f"blogpost_{timestamp}")
 
-    img_path = os.path.join(BLOGPOST_DIR, image_filename)
-    html_path = os.path.join(BLOGPOST_DIR, html_filename)
+    img_path = os.path.join(post_dir, image_filename)
+    html_path = os.path.join(post_dir, "index.html")
 
     # Copy screenshot
     shutil.copy(temp_screenshot, img_path)
@@ -1465,21 +1486,16 @@ def save_and_open_blogpost_content(html_content, image_descriptions, source_name
     Save HTML and all images to blogpost directory, then open in browser.
     Returns the HTML path.
     """
-    if not os.path.exists(BLOGPOST_DIR):
-        os.makedirs(BLOGPOST_DIR)
-        print(colored(f"Created directory: {BLOGPOST_DIR}", "white"))
-
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base_name = re.sub(r'[^\w\-]', '_', source_name)[:30]
-    html_filename = f"blogpost_{base_name}_{timestamp}.html"
-    html_path = os.path.join(BLOGPOST_DIR, html_filename)
+    post_dir = _session_post_dir(f"blogpost_{base_name}_{timestamp}")
+    html_path = os.path.join(post_dir, "index.html")
 
-    # Copy all images to blogpost directory
+    # Copy all images into this post's folder, next to index.html
     for desc in image_descriptions:
         src_path = desc['original_path']
         dst_filename = desc['filename']
-        # Ensure unique filename
-        dst_path = os.path.join(BLOGPOST_DIR, dst_filename)
+        dst_path = os.path.join(post_dir, dst_filename)
         if os.path.exists(src_path):
             shutil.copy(src_path, dst_path)
             print(colored(f"Saved image: {dst_filename}", "cyan"))
@@ -1524,11 +1540,15 @@ def main():
                 all_images = []
                 source_names = []
 
-                # Create a temp directory for extracted PDF images
+                # Scratch dir for PDF-extracted images. When we own it (no
+                # parent-supplied path) put it in the system tempdir, NOT under
+                # blogposts/ — the images that matter get copied into the post
+                # folder by save_and_open_blogpost_content; this stays disposable.
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 content_dir = args.content_dir
+                _own_content_dir = not content_dir
                 if not content_dir:
-                    content_dir = os.path.join(BLOGPOST_DIR, f"content_{timestamp}")
+                    content_dir = _tempfile.mkdtemp(prefix="bloggen_content_")
                 os.makedirs(content_dir, exist_ok=True)
 
                 # Process raw pasted text
@@ -1597,11 +1617,12 @@ def main():
                 # Save and open
                 save_and_open_blogpost_content(html_content, image_descriptions, combined_name)
 
-                # Cleanup temp content directory if empty
+                # Drop the scratch dir entirely (images already copied into the
+                # post folder). Only remove one we created, never a parent's.
                 try:
-                    if content_dir and os.path.exists(content_dir) and not os.listdir(content_dir):
-                        os.rmdir(content_dir)
-                except:
+                    if _own_content_dir and content_dir and os.path.exists(content_dir):
+                        shutil.rmtree(content_dir, ignore_errors=True)
+                except Exception:
                     pass
 
                 run_interactive_loop(chat, image_descriptions[0]['filename'] if image_descriptions else None, combined_name)

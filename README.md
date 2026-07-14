@@ -14,8 +14,9 @@ Two phases, both Gemini:
 
 1. **Analyse** the inputs (text + images extracted from PDFs, raw images, or
    pasted text).
-2. **Generate** a single self-contained `blogpost_<timestamp>.html` (plus any
-   referenced images) under `blogposts/`, then open it in the browser.
+2. **Generate** a self-contained blogpost into its own folder
+   `blogposts/<name>/` — an `index.html` plus any referenced images — then
+   open it in the browser.
 
 ## Install
 
