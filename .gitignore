@@ -8,7 +8,10 @@ blogposts/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# Claude Code
 CLAUDE.md
+.claude/
 
 # Menu test harness debug log
 menu_debug.log
