@@ -27,7 +27,11 @@ if SCRIPT_DIR not in sys.path:
 
 import main  # noqa: E402  (real implementation under test)
 
-LOG_PATH = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(SCRIPT_DIR, "menu_debug.log")
+# The custom-log-path argument is only honored when this harness is run
+# directly. Under pytest, sys.argv[1] is pytest's own flag (e.g. "-q"), which
+# would silently create a junk file named after it in the repo root.
+_ARG_LOG = sys.argv[1] if (__name__ == "__main__" and len(sys.argv) > 1) else None
+LOG_PATH = os.path.abspath(_ARG_LOG) if _ARG_LOG else os.path.join(SCRIPT_DIR, "menu_debug.log")
 
 # Fresh log each run.
 _log_fh = open(LOG_PATH, "w", encoding="utf-8", buffering=1)
