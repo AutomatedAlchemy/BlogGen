@@ -116,11 +116,11 @@ def test_launch_passes_screenshot_path_to_child(main_mod, monkeypatch):
 
 
 def test_preferred_model_is_tried_first(main_mod):
-    # The tool must lead with gemini-3.5-flash regardless of the shared .env
+    # The tool must lead with gemini-3.6-flash regardless of the shared .env
     # ordering; remaining models stay as fallbacks.
-    assert main_mod.PREFERRED_MODEL == "gemini-3.5-flash"
-    assert main_mod.GEMINI_CANDIDATE_MODELS[0] == "gemini-3.5-flash"
-    assert main_mod.GEMINI_CANDIDATE_MODELS.count("gemini-3.5-flash") == 1
+    assert main_mod.PREFERRED_MODEL == "gemini-3.6-flash"
+    assert main_mod.GEMINI_CANDIDATE_MODELS[0] == "gemini-3.6-flash"
+    assert main_mod.GEMINI_CANDIDATE_MODELS.count("gemini-3.6-flash") == 1
 
 
 def test_parse_arguments_accepts_screenshot_path(main_mod, monkeypatch):

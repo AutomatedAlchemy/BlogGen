@@ -42,18 +42,67 @@ SKILL_FILE = SKILL_DIR / "SKILL.md"
 
 SKILL_MD_CONTENT = '''---
 name: bloggen
-description: Turn a screenshot, image(s), PDF, pasted text, or the current conversation into a self-contained, styled HTML blogpost (Gemini-generated — analysis + responsive CSS + MathJax) saved to disk and opened in the browser. Use when the user wants content written up as a shareable HTML article — "make a blogpost from this screenshot/image/PDF", "turn this into an HTML write-up", "write up what's in this screenshot", "turn our conversation/this discussion into a blogpost", "Blogpost aus diesem Screenshot/Bild/PDF", "mach aus unserem Gespräch einen Artikel". NOT for plain OCR / text or LaTeX extraction (use transcribe-image) and NOT for the daily digest (use digest).
+description: Turn a screenshot, image(s), PDF, pasted text, or the current conversation into a self-contained, styled HTML blogpost saved to disk and opened in the browser. You may author the HTML yourself (default) or delegate writing to Gemini. Use when the user wants content written up as a shareable HTML article — "make a blogpost from this screenshot/image/PDF", "turn this into an HTML write-up", "write up what's in this screenshot", "turn our conversation/this discussion into a blogpost", "Blogpost aus diesem Screenshot/Bild/PDF", "mach aus unserem Gespräch einen Artikel". NOT for plain OCR / text or LaTeX extraction (use transcribe-image) and NOT for the daily digest (use digest).
 ---
 
 # BlogGen — image/PDF/text/conversation -> styled HTML blogpost
 
-Two-phase Gemini tool: it first *analyzes* the supplied content (text + images),
-then *generates* a complete, self-contained HTML5 blogpost (inline CSS,
-responsive layout, optional MathJax) that expands on the concepts it found. Each
-run writes its own folder under the tool's `blogposts/` directory — an
-`index.html` plus every image it references — and opens it in Firefox.
+Produces a self-contained HTML5 blogpost (inline CSS, responsive layout,
+optional MathJax) in its own folder under the tool's `blogposts/` directory —
+an `index.html` plus every image it references — and opens it in Firefox.
 
-## Invocation — use absolute paths, NOT the alias/desktop entry
+The writing can be done two ways. **Pick the mode before you run anything.**
+
+## Mode B — you author it (DEFAULT — prefer this)
+
+**Do both phases yourself:** analyse the source, then write the HTML, then hand
+it to `publish.py` for the folder/image/browser mechanics. No Gemini involved.
+
+This is the default because you almost always already hold the content, and
+delegating then means paying a second model to paraphrase your own summary —
+which adds wording drift without adding information. Choose Mode B when:
+
+- **any claim must be traceable** — repo state, measured numbers, quoted
+  results, anything a reviewer/professor/colleague will check;
+- the source **is the conversation** (Gemini would only ever see your lossy
+  summary of it, never the real thread);
+- you already read the files/images being written about;
+- a specific structure, house style, or language is required;
+- the user asked for *your* writing, or wants to iterate on the text with you.
+
+```bash
+PUB=/home/prob/Synced/repos/AutomatedAlchemy/bloggen/publish.py
+PY=/home/prob/Synced/repos/prob_ubuntu_environment/Py3EnvShare/bin/python3
+
+# 1. Start from the house template so styling stays consistent across modes:
+#    /home/prob/Synced/repos/AutomatedAlchemy/bloggen/assets/template.html
+#    Read it, fill TITLE / standfirst / <article> body, drop the MathJax
+#    <script> pair if there is no maths. Write the result anywhere, e.g.
+#    the scratchpad.
+# 2. Reference images by BASENAME ONLY: <img src="fig1.png">
+# 3. Publish (creates blogposts/<slug>_<timestamp>/, copies images, opens Firefox):
+"$PY" "$PUB" --html /path/post.html --image-files /abs/fig1.png /abs/fig2.png
+```
+
+`publish.py` flags: `--name <slug>` (default: the `<title>`), `--no-open`.
+It warns if an `<img src>` is a path rather than a basename, references a file
+you did not pass, or if a supplied image is never referenced — fix those, they
+mean a broken image in the published post.
+
+## Mode A — delegate to Gemini
+
+Two-phase Gemini run: it *analyzes* the supplied content (text + images), then
+*generates* the whole post — prose, CSS, layout — expanding on what it found.
+Costs no agent tokens and needs no reading on your part.
+
+Use when the source is an **artifact you have not ingested** (a long PDF, a
+screenshot you are not otherwise reading), when per-claim fidelity does not
+matter much, or when the user explicitly wants the tool's own voice/flair.
+
+**Do not use Mode A to write up work you already know** — that is the case
+Mode B exists for.
+
+### Invocation — use absolute paths, NOT the alias/desktop entry
 
 Run the tool's headless `--analyze-only` content mode directly. Re-define these
 in **every** Bash call (shell state does not persist between calls). The
@@ -67,7 +116,7 @@ SB=/home/prob/Synced/repos/AutomatedAlchemy/bloggen/main.py
 export BLOGGEN_ENV=/home/prob/Synced/repos/tools/.env
 ```
 
-## Commands
+### Mode A commands
 
 ```bash
 # From one or more images
@@ -88,7 +137,14 @@ printf '%s' "the text to write up" > /tmp/sb_text.txt
 "$PY" "$SB" --analyze-only --text-files notes.pdf --image-files fig1.png --raw-text-file /tmp/sb_text.txt
 ```
 
-## Output
+## Mode C — hybrid (rare)
+
+Run Mode A, then **read the generated `index.html` and correct it** against your
+own knowledge of the source before showing the user. Worth it only when you want
+Gemini's design work but need your accuracy. Say plainly in your reply that you
+patched it.
+
+## Output (both modes)
 - Saves a per-post folder `blogposts/<name>/` containing `index.html`
   plus its images, under `.../AutomatedAlchemy/bloggen/blogposts/`, and
   prints the path as `Saved HTML: <path>` — read that line back to the user.
@@ -96,9 +152,14 @@ printf '%s' "the text to write up" > /tmp/sb_text.txt
 - Non-interactive runs (Claude's Bash tool) skip the end-of-run countdown and
   return promptly.
 
+## Reporting to the user
+State which mode you used. If Gemini wrote the prose (Mode A), **say so** — the
+user needs to know the wording is not yours before forwarding it to anyone.
+
 ## Notes
-- Needs `GEMINI_API_KEY` in `~/Synced/repos/tools/.env` (already set on this fleet).
-- Prefers `gemini-3.5-flash`, then falls back through the shared `.env` model lists.
+- Mode B needs no API key. Mode A needs `GEMINI_API_KEY` in
+  `~/Synced/repos/tools/.env` (already set on this fleet).
+- Prefers `gemini-3.6-flash`, then falls back through the shared `.env` model lists.
 - `--text-files` accepts PDFs (text + images extracted) and plain-text files.
 - `--image-files` accepts ordinary image files; up to 5 images per PDF are pulled in.
 - This tool *writes about* the content (generation). For straight OCR / LaTeX
@@ -234,7 +295,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 # Model this tool prefers, kept ahead of the shared .env lists so the blogpost
 # generator uses it first; the env-configured models remain as fallbacks (and
 # the generation loop already skips a MODEL NOT FOUND id gracefully).
-PREFERRED_MODEL = "gemini-3.5-flash"
+PREFERRED_MODEL = "gemini-3.6-flash"
 
 def get_candidate_models():
     """Unique, ordered model list: PREFERRED_MODEL first, then any models from the

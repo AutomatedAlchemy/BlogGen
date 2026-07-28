@@ -40,7 +40,7 @@ Optional `.env` knobs:
 | `BROWSER_PATH` | browser to open the result | `/usr/bin/firefox` |
 | `BLOGGEN_ENV` | explicit path to a `.env` file | — |
 
-The preferred model is `gemini-3.5-flash`; the env model lists (and a small
+The preferred model is `gemini-3.6-flash`; the env model lists (and a small
 built-in list) act as fallbacks.
 
 ## Usage
