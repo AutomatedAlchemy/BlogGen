@@ -5,6 +5,9 @@ Turn a screenshot, image(s), PDF, pasted text, or the current conversation into 
 HTML5 article (inline responsive CSS, optional MathJax) that expands on the
 concepts it found. The result is written to disk and opened in your browser.
 
+**See one:** [a full, rendered post](https://probable.work/bloggen/example/) — generated
+from a single screenshot, served exactly as the tool wrote it.
+
 > _A short demo GIF / video will live here._
 <!-- ![demo](assets/demo.gif) -->
 
@@ -64,6 +67,52 @@ python main.py --analyze-only --text-files notes.pdf --image-files fig1.png --ra
 ```
 
 The tool prints `Saved HTML: <path>` for the generated file.
+
+## Provenance — where a post came from
+
+Every publish writes `blogposts/<name>/source.json` and stamps the same record
+into the HTML head as `<meta name="bloggen:provenance">` (the sidecar is easy to
+read; the meta tag survives the folder being moved). It records the working
+directory, the git repo + branch + commit if there is one, the input files, the
+host and the mode (`gemini` or `agent`).
+
+So **run bloggen from the project the post is about** — that is the signal that
+makes "which posts came out of my mujoco training?" answerable later. When the
+origin is more specific than the cwd, or isn't a file at all, name it:
+
+```bash
+python publish.py --html post.html --source .state/status.html
+python main.py --analyze-only --text-files paper.pdf --source https://arxiv.org/abs/…
+```
+
+The index page turns each recorded source into a filter chip and a clickable
+tag on the card. Posts published before this existed simply carry no source;
+nothing is guessed for them.
+
+## Index page over everything you've published
+
+`build_index.py` scans `blogposts/` and writes a single static page,
+`blogposts/index.html`, that links to every post:
+
+```bash
+python build_index.py            # regenerate
+python build_index.py --open     # …and open it
+```
+
+It reads each post's `<title>`, headings, first paragraphs and full body text,
+embeds the whole corpus inline and ranks queries client-side with **BM25F** —
+four weighted fields (title 8× · headings 3× · description 2× · body 1×), prefix
+expansion for partial words, accent folding (`wohler` finds `Wöhler`) and a
+phrase bonus. Works straight off `file://`: no server, no network, no
+dependencies beyond the standard library.
+
+The page is a two-pane layout — a scrollable result list plus a live preview
+iframe on wide screens, list-only below 1024 px — and never produces a
+page-level scrollbar; only the inner panes scroll. Legacy loose
+`blogposts/blogpost_*.html` files are indexed too, and ones that are
+byte-identical to a `<slug>/index.html` are dropped as duplicates.
+
+Re-run it after publishing; the page is regenerated from scratch each time.
 
 ## Optional desktop / Claude-Code integration
 
