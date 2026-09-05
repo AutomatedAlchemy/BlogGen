@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Blogposts — Index</title>
+<style>
+/* ---------------------------------------------------------------- tokens */
+:root{
+  --bg:#f2f4f7; --panel:#ffffff; --sunk:#e9ecf1; --line:#dee3ea; --line-soft:#eaeef3;
+  --ink:#131820; --ink2:#3d4655; --muted:#69727f; --faint:#98a1ae;
+  --accent:#2c62e8; --accent-ink:#fff; --accent-soft:#e3ebfe; --accent-line:#b9ccfb;
+  --mark:#ffe38a; --mark-ink:#43330a;
+  --shadow:0 1px 2px rgba(15,23,42,.05), 0 10px 24px -16px rgba(15,23,42,.35);
+  --radius:12px;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+:root[data-theme="dark"]{
+  --bg:#0e1116; --panel:#161a21; --sunk:#1d222b; --line:#2a313d; --line-soft:#232935;
+  --ink:#e8ebf1; --ink2:#b7bfcc; --muted:#8b95a4; --faint:#6b7482;
+  --accent:#6d9bff; --accent-ink:#0b0f16; --accent-soft:#1b2740; --accent-line:#2f4573;
+  --mark:#6a5410; --mark-ink:#ffe9a8;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 28px -18px rgba(0,0,0,.9);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1116; --panel:#161a21; --sunk:#1d222b; --line:#2a313d; --line-soft:#232935;
+    --ink:#e8ebf1; --ink2:#b7bfcc; --muted:#8b95a4; --faint:#6b7482;
+    --accent:#6d9bff; --accent-ink:#0b0f16; --accent-soft:#1b2740; --accent-line:#2f4573;
+    --mark:#6a5410; --mark-ink:#ffe9a8;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 28px -18px rgba(0,0,0,.9);
+  }
+}
+
+/* ---------------------------------------------------------------- shell */
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; overflow:hidden;                 /* no page-level scrollbar, ever */
+  background:var(--bg); color:var(--ink);
+  font:15px/1.5 var(--sans); -webkit-font-smoothing:antialiased;
+}
+#app{
+  height:100vh; height:100dvh;
+  display:grid; grid-template-rows:auto minmax(0,1fr);
+}
+button,input,select{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+
+/* ---------------------------------------------------------------- header */
+#top{
+  display:grid; align-items:center; gap:.55rem .9rem;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  grid-template-areas:"brand search tools" "chips chips chips";
+  padding:clamp(.55rem,1.4vh,1rem) clamp(.7rem,2vw,1.4rem);
+  background:var(--panel); border-bottom:1px solid var(--line);
+}
+.brand{grid-area:brand;display:flex;align-items:center;gap:.6rem;min-width:0}
+.logo{
+  display:grid;place-items:center;width:32px;height:32px;flex:none;border-radius:9px;
+  background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:15px;
+  font-family:var(--mono);letter-spacing:-.05em;
+}
+.brand h1{margin:0;font-size:15px;font-weight:650;letter-spacing:-.01em;white-space:nowrap}
+.brand .sub{margin:0;font-size:11.5px;color:var(--muted);font-family:var(--mono);white-space:nowrap}
+
+.searchwrap{
+  grid-area:search;position:relative;display:flex;align-items:center;min-width:0;
+}
+.searchwrap svg{position:absolute;left:.7rem;width:16px;height:16px;color:var(--faint);pointer-events:none}
+#q{
+  width:100%;padding:.55rem 5.2rem .55rem 2.2rem;border-radius:10px;
+  border:1px solid var(--line);background:var(--sunk);color:var(--ink);
+  outline:none;transition:border-color .12s,box-shadow .12s,background .12s;
+}
+#q::placeholder{color:var(--faint)}
+#q:focus{border-color:var(--accent-line);background:var(--panel);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+#q::-webkit-search-cancel-button{display:none}
+.searchwrap kbd{
+  position:absolute;right:.55rem;padding:.1rem .38rem;border-radius:6px;
+  border:1px solid var(--line);background:var(--panel);color:var(--faint);
+  font:11px/1.5 var(--mono);pointer-events:none;
+}
+#clear{
+  position:absolute;right:2.3rem;width:22px;height:22px;display:none;place-items:center;
+  border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;
+}
+#clear:hover{background:var(--sunk);color:var(--ink)}
+body.has-q #clear{display:grid}
+body.has-q .searchwrap kbd{opacity:0}
+
+.tools{grid-area:tools;display:flex;align-items:center;gap:.4rem}
+#sort{
+  padding:.45rem 1.6rem .45rem .6rem;border-radius:9px;border:1px solid var(--line);
+  background:var(--sunk) no-repeat right .5rem center;
+  background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
+                   linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+  background-size:5px 5px,5px 5px;
+  background-position:calc(100% - 12px) calc(50% + 1px),calc(100% - 7px) calc(50% + 1px);
+  appearance:none;cursor:pointer;font-size:13px;
+}
+.iconbtn{
+  width:32px;height:32px;display:grid;place-items:center;flex:none;cursor:pointer;
+  border:1px solid var(--line);border-radius:9px;background:var(--sunk);color:var(--ink2);
+}
+.iconbtn:hover{background:var(--panel);color:var(--ink);border-color:var(--accent-line)}
+
+#chips{
+  grid-area:chips;display:flex;gap:.35rem;overflow-x:auto;
+  scrollbar-width:none;-ms-overflow-style:none;
+}
+#chips::-webkit-scrollbar{display:none}
+.chip{
+  flex:none;padding:.22rem .6rem;border-radius:999px;cursor:pointer;
+  border:1px solid var(--line);background:transparent;color:var(--muted);
+  font:12px/1.55 var(--sans);white-space:nowrap;transition:.12s;
+}
+.chip:hover{color:var(--ink);border-color:var(--accent-line)}
+.chip[aria-pressed="true"]{
+  background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent);font-weight:600;
+}
+.chip b{font-family:var(--mono);font-weight:400;opacity:.65;font-size:11px;margin-left:.25rem}
+
+/* ---------------------------------------------------------------- panes */
+main{
+  min-height:0;display:grid;gap:clamp(.5rem,1.2vw,1rem);
+  grid-template-columns:clamp(330px,33vw,540px) minmax(0,1fr);
+  padding:clamp(.5rem,1.2vw,1rem);
+}
+#listpane{min-height:0;display:flex;flex-direction:column;gap:.45rem}
+.listhead{
+  display:flex;justify-content:space-between;align-items:baseline;gap:.5rem;
+  padding:0 .3rem;font:11.5px/1.4 var(--mono);color:var(--faint);
+}
+.listhead #count{color:var(--ink2)}
+#list{
+  flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-gutter:stable;display:flex;flex-direction:column;gap:.4rem;padding-right:.15rem;
+}
+
+/* ---------------------------------------------------------------- cards */
+.card{
+  display:block;position:relative;padding:.65rem .8rem .6rem;border-radius:var(--radius);
+  background:var(--panel);border:1px solid var(--line-soft);cursor:pointer;
+  transition:border-color .12s,transform .12s,box-shadow .12s;
+}
+.card:hover{border-color:var(--accent-line);box-shadow:var(--shadow)}
+.card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.card[aria-current="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.card[aria-current="true"]::before{
+  content:"";position:absolute;left:0;top:.7rem;bottom:.7rem;width:3px;
+  border-radius:0 3px 3px 0;background:var(--accent);
+}
+.ct{
+  margin:0 0 .22rem;font-size:14px;font-weight:620;line-height:1.35;letter-spacing:-.005em;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.cs{
+  margin:0;font-size:12.5px;line-height:1.45;color:var(--ink2);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.cm{
+  display:flex;align-items:center;gap:.45rem;margin-top:.4rem;
+  font:11px/1.4 var(--mono);color:var(--faint);
+}
+.cm .dot{opacity:.45}
+.cm .tag{
+  padding:.02rem .32rem;border-radius:5px;background:var(--sunk);color:var(--muted);
+}
+.cm .srcbtn{
+  border:1px solid var(--line);font:inherit;cursor:pointer;color:var(--accent);
+  background:var(--accent-soft);max-width:14ch;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;
+}
+.cm .srcbtn:hover{border-color:var(--accent)}
+.cm .rel{margin-left:auto;color:var(--accent);font-weight:600}
+.relbar{margin-top:.45rem;height:2px;border-radius:2px;background:var(--sunk);overflow:hidden}
+.relbar i{display:block;height:100%;background:var(--accent);border-radius:2px}
+mark{background:var(--mark);color:var(--mark-ink);border-radius:3px;padding:0 .1em}
+.empty{
+  margin:auto;padding:2rem 1rem;text-align:center;color:var(--muted);font-size:13px;
+}
+.empty b{display:block;color:var(--ink);font-size:15px;margin-bottom:.3rem}
+
+/* ---------------------------------------------------------------- preview */
+#previewpane{
+  min-height:0;display:flex;flex-direction:column;border-radius:var(--radius);
+  background:var(--panel);border:1px solid var(--line-soft);overflow:hidden;
+}
+.pvhead{
+  display:flex;align-items:center;gap:.6rem;padding:.5rem .6rem .5rem .85rem;
+  border-bottom:1px solid var(--line-soft);min-height:44px;
+}
+.pvhead .pvt{
+  font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.pvhead .pvd{font:11px/1.4 var(--mono);color:var(--faint);flex:none}
+.pvhead .spacer{flex:1}
+.pvbtn{
+  flex:none;padding:.3rem .6rem;border-radius:8px;border:1px solid var(--line);
+  background:var(--sunk);color:var(--ink2);font-size:12px;cursor:pointer;white-space:nowrap;
+}
+.pvbtn:hover{border-color:var(--accent-line);color:var(--accent)}
+#frame{flex:1;min-height:0;width:100%;border:0;background:var(--bg)}
+#pvempty{
+  flex:1;min-height:0;display:grid;place-content:center;gap:.9rem;text-align:center;
+  padding:1.5rem;color:var(--muted);
+}
+#pvempty .big{font-size:15px;color:var(--ink2)}
+.stats{display:flex;gap:1.6rem;justify-content:center;flex-wrap:wrap}
+.stat{display:grid;gap:.1rem}
+.stat b{font:600 20px/1.2 var(--sans);color:var(--ink)}
+.stat span{font:11px/1.4 var(--mono);color:var(--faint);text-transform:uppercase;letter-spacing:.06em}
+.keys{
+  display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;
+  font:11px/1.8 var(--mono);color:var(--faint);
+}
+.keys kbd{
+  padding:.05rem .35rem;border:1px solid var(--line);border-radius:5px;background:var(--sunk);
+}
+body.pv-open #pvempty{display:none}
+body:not(.pv-open) #frame{display:none}
+body:not(.pv-open) .pvhead .pvt{color:var(--faint);font-weight:500}
+
+/* ---------------------------------------------------------------- adapt */
+@media (max-width:1023px){
+  main{grid-template-columns:minmax(0,1fr)}
+  #previewpane{display:none}
+  #list{gap:.35rem}
+}
+@media (min-width:1500px){
+  main{grid-template-columns:clamp(380px,26vw,560px) minmax(0,1fr)}
+  #list{padding-right:.3rem}
+}
+@media (max-width:760px){
+  #top{grid-template-columns:minmax(0,1fr) auto;
+       grid-template-areas:"brand tools" "search search" "chips chips"}
+  .brand .sub{display:none}
+  #q{padding-right:2.6rem}
+  .searchwrap kbd{display:none}
+  #clear{right:.5rem}
+}
+@media (max-width:420px){
+  .cm .lang{display:none}
+  .listhead #hint{display:none}
+}
+@media (max-height:560px){
+  .brand .sub{display:none}
+  #top{gap:.4rem .7rem;padding-top:.4rem;padding-bottom:.4rem}
+  .card{padding:.5rem .7rem}
+  .cs{-webkit-line-clamp:1}
+}
+@media (max-height:420px){
+  #chips{display:none}
+  .cs{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <div class="brand">
+      <span class="logo">▤</span>
+      <div>
+        <h1>Blogposts</h1>
+        <p class="sub" id="sub">—</p>
+      </div>
+    </div>
+
+    <div class="searchwrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" autocomplete="off" spellcheck="false"
+             placeholder="Titel, Beschreibung, Volltext …" aria-label="Blogposts durchsuchen">
+      <button id="clear" title="Suche leeren" aria-label="Suche leeren">✕</button>
+      <kbd>/</kbd>
+    </div>
+
+    <div class="tools">
+      <select id="sort" aria-label="Sortierung">
+        <option value="rel">Relevanz</option>
+        <option value="new">Neueste</option>
+        <option value="old">Älteste</option>
+        <option value="az">A–Z</option>
+      </select>
+      <button class="iconbtn" id="theme" title="Theme wechseln" aria-label="Theme wechseln">◐</button>
+    </div>
+
+    <div id="chips"></div>
+  </header>
+
+  <main>
+    <section id="listpane">
+      <div class="listhead">
+        <span id="count">—</span>
+        <span id="hint">↑↓ blättern · ⏎ öffnen</span>
+      </div>
+      <div id="list" role="list"></div>
+    </section>
+
+    <section id="previewpane" aria-label="Vorschau">
+      <div class="pvhead">
+        <span class="pvt" id="pvt">Vorschau</span>
+        <span class="pvd" id="pvd"></span>
+        <span class="spacer"></span>
+        <a class="pvbtn" id="pvopen" target="_blank" rel="noopener" hidden>Neuer Tab ↗</a>
+        <button class="pvbtn" id="pvclose" hidden>Schließen</button>
+      </div>
+      <iframe id="frame" title="Blogpost-Vorschau"></iframe>
+      <div id="pvempty">
+        <div class="big">Post auswählen — die Vorschau lädt hier.</div>
+        <div class="stats" id="stats"></div>
+        <div class="keys">
+          <span><kbd>/</kbd> suchen</span><span><kbd>↑</kbd><kbd>↓</kbd> blättern</span>
+          <span><kbd>⏎</kbd> Vorschau</span><span><kbd>⇧⏎</kbd> neuer Tab</span>
+          <span><kbd>esc</kbd> zurücksetzen</span>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+"use strict";
+const DOCS = /*__DOCS__*/null;
+const META = /*__META__*/null;
+const N = DOCS.length;
+
+/* ------------------------------------------------------------ text utils */
+const STOP = new Set(("der die das den dem des ein eine einen einem einer eines und oder aber " +
+  "als also auch auf aus bei bis dann dass doch durch für gegen hat haben hier ich ihr im in " +
+  "ist mit nach nicht noch nur ob oder ohne sein sich sie sind über um und vom von vor war " +
+  "was wenn wie wir wird zu zum zur " +
+  "a an and are as at be but by for from has have how in into is it its of on or that the " +
+  "their there this to was were what when which who will with you your").split(" "));
+
+const WORD = /[\p{L}\p{N}]+/gu;
+const MARKS = /\p{M}/gu;
+
+function fold(s){ return s.normalize("NFD").replace(MARKS, ""); }
+/** lowercase + accent-fold, but only if that keeps offsets intact */
+function foldKeep(s){ const l = s.toLowerCase(), f = fold(l); return f.length === l.length ? f : l; }
+function tokenize(s){ return foldKeep(s).match(WORD) || []; }
+function esc(s){ return s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function reEsc(s){ return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+function fmt(n){ return n.toLocaleString("de-DE"); }
+
+/* --------------------------------------------------------------- BM25F */
+// field, weight, length-normalisation b
+const FIELDS = [["t", 8, .35], ["sr", 4, .2], ["hd", 3, .5], ["d", 2, .4], ["x", 1, .75]];
+const K1 = 1.4;
+
+const postings = new Map();   // term -> flat [docIdx, weightedTf, ...]
+let TERMS = [];
+
+(function buildIndex(){
+  const toks = [], sums = {};
+  for (const d of DOCS){
+    const o = {};
+    for (const [f] of FIELDS){ o[f] = tokenize(d[f] || ""); sums[f] = (sums[f] || 0) + o[f].length; }
+    toks.push(o);
+    d._tl = foldKeep(d.t); d._dl = foldKeep(d.d + " " + d.hd); d._xl = foldKeep(d.x);
+  }
+  const avg = {};
+  for (const [f] of FIELDS) avg[f] = Math.max(1, sums[f] / N);
+
+  for (let i = 0; i < N; i++){
+    const acc = new Map();
+    for (const [f, w, b] of FIELDS){
+      const t = toks[i][f];
+      if (!t.length) continue;
+      const add = w / (1 - b + b * (t.length / avg[f]));
+      for (const term of t) acc.set(term, (acc.get(term) || 0) + add);
+    }
+    for (const [term, wtf] of acc){
+      let p = postings.get(term);
+      if (!p){ p = []; postings.set(term, p); }
+      p.push(i, wtf);
+    }
+  }
+  TERMS = Array.from(postings.keys());
+})();
+
+function idf(term){
+  const p = postings.get(term), df = p ? p.length / 2 : 0;
+  return Math.log(1 + (N - df + .5) / (df + .5));
+}
+
+/** BM25F over title/headings/description/body + prefix expansion,
+ *  coverage weighting and a phrase bonus. */
+function rank(query, pool){
+  const raw = tokenize(query);
+  let qt = raw.filter(t => !STOP.has(t));
+  if (!qt.length) qt = raw;
+  if (!qt.length) return null;
+  qt = Array.from(new Set(qt)).slice(0, 12);
+
+  const scores = new Float64Array(N), cover = new Uint8Array(N);
+  for (const t of qt){
+    const variants = [];
+    if (postings.has(t)) variants.push([t, 1]);
+    if (t.length >= 3){
+      let n = 0;
+      for (const term of TERMS){
+        if (term.length > t.length && term.startsWith(t)){
+          variants.push([term, .5 + .3 * (t.length / term.length)]);
+          if (++n >= 24) break;
+        }
+      }
+    }
+    if (!variants.length) continue;
+    const seen = new Uint8Array(N);
+    for (const [term, damp] of variants){
+      const w = idf(term) * damp, p = postings.get(term);
+      for (let k = 0; k < p.length; k += 2){
+        const i = p[k], wtf = p[k + 1];
+        scores[i] += w * (wtf * (K1 + 1)) / (K1 + wtf);
+        seen[i] = 1;
+      }
+    }
+    for (let i = 0; i < N; i++) if (seen[i]) cover[i]++;
+  }
+
+  const phrase = foldKeep(query.trim());
+  const out = [];
+  for (const i of pool){
+    if (!cover[i]) continue;
+    let s = scores[i] * Math.pow(.35 + .65 * cover[i] / qt.length, 1.6);
+    if (phrase.length >= 3){
+      const d = DOCS[i];
+      if (d._tl.includes(phrase)) s += 4;
+      else if (d._dl.includes(phrase)) s += 1.6;
+      else if (d._xl.includes(phrase)) s += .7;
+    }
+    out.push({ i, s });
+  }
+  out.sort((a, b) => b.s - a.s || DOCS[b.i].ts - DOCS[a.i].ts);
+  return { hits: out, terms: qt };
+}
+
+/* ------------------------------------------------------- snippet + marks */
+let hlRe = null;
+function setHighlight(terms){
+  if (!terms || !terms.length){ hlRe = null; return; }
+  const body = terms.map(reEsc).sort((a, b) => b.length - a.length).join("|");
+  try { hlRe = new RegExp("(?<![\\p{L}\\p{N}])(?:" + body + ")[\\p{L}\\p{N}]*", "giu"); }
+  catch (e) { hlRe = new RegExp("(?:" + body + ")", "giu"); }
+}
+function mark(text){
+  if (!hlRe) return esc(text);
+  const f = foldKeep(text);
+  if (f.length !== text.length) return esc(text);
+  let out = "", last = 0, m;
+  hlRe.lastIndex = 0;
+  while ((m = hlRe.exec(f)) !== null){
+    if (!m[0].length){ hlRe.lastIndex++; continue; }
+    out += esc(text.slice(last, m.index)) + "<mark>" +
+           esc(text.slice(m.index, m.index + m[0].length)) + "</mark>";
+    last = m.index + m[0].length;
+  }
+  return out + esc(text.slice(last));
+}
+function snippet(d, terms){
+  if (!terms) return d.d;
+  let at = -1;
+  for (const t of terms){
+    const i = d._xl.indexOf(t);
+    if (i >= 0 && (at < 0 || i < at)) at = i;
+  }
+  if (at < 0 || at < 140) return d.d;
+  let s = Math.max(0, at - 80), e = Math.min(d.x.length, at + 200);
+  const sp = d.x.indexOf(" ", s);
+  if (sp > 0 && sp - s < 20) s = sp + 1;
+  return (s > 0 ? "… " : "") + d.x.slice(s, e).trim() + (e < d.x.length ? " …" : "");
+}
+
+/* ----------------------------------------------------------------- state */
+const state = {
+  q: "", sort: localStorage.getItem("bloggen.sort") || "rel",
+  lang: "", series: "", src: "", sel: -1, rows: [],
+};
+const $ = id => document.getElementById(id);
+const wide = window.matchMedia("(min-width:1024px)");
+
+/* ----------------------------------------------------------------- chips */
+(function chips(){
+  const box = $("chips"), langs = { de: "Deutsch", en: "English" };
+  const add = (label, count, type, value) => {
+    const b = document.createElement("button");
+    b.className = "chip"; b.type = "button";
+    b.setAttribute("aria-pressed", "false");
+    b.dataset.type = type; b.dataset.value = value;
+    b.innerHTML = esc(label) + (count ? "<b>" + count + "</b>" : "");
+    b.onclick = () => {
+      state[type] = state[type] === value ? "" : value;
+      state.sel = -1;
+      box.querySelectorAll(".chip").forEach(c =>
+        c.setAttribute("aria-pressed", String(state[c.dataset.type] === c.dataset.value)));
+      render();
+    };
+    box.appendChild(b);
+  };
+  for (const l of META.langs){
+    const n = DOCS.filter(d => d.l === l).length;
+    add(langs[l] || l.toUpperCase(), n, "lang", l);
+  }
+  for (const [s, n] of META.series) add(s, n, "series", s);
+  for (const [s, n] of META.sources) add("↳ " + s, n, "src", s);
+})();
+
+/** Filter by a source from a click on a card's source tag. */
+function filterSource(value){
+  state.src = state.src === value ? "" : value;
+  state.sel = -1;
+  document.querySelectorAll("#chips .chip").forEach(c =>
+    c.setAttribute("aria-pressed", String(state[c.dataset.type] === c.dataset.value)));
+  render();
+}
+
+/* ---------------------------------------------------------------- render */
+function pool(){
+  const out = [];
+  for (let i = 0; i < N; i++){
+    const d = DOCS[i];
+    if (state.lang && d.l !== state.lang) continue;
+    if (state.series && d.s !== state.series) continue;
+    if (state.src && d.src !== state.src) continue;
+    out.push(i);
+  }
+  return out;
+}
+
+function render(){
+  const p = pool();
+  const res = state.q.trim() ? rank(state.q, p) : null;
+  setHighlight(res && res.terms);
+
+  let rows;
+  if (res){
+    rows = res.hits;
+    const max = rows.length ? rows[0].s : 1;
+    if (state.sort === "new") rows.sort((a, b) => DOCS[b.i].ts - DOCS[a.i].ts);
+    else if (state.sort === "old") rows.sort((a, b) => DOCS[a.i].ts - DOCS[b.i].ts);
+    else if (state.sort === "az") rows.sort((a, b) => DOCS[a.i].t.localeCompare(DOCS[b.i].t, "de"));
+    rows.forEach(r => r.rel = Math.max(.04, r.s / max));
+  } else {
+    rows = p.map(i => ({ i, s: 0, rel: 0 }));
+    if (state.sort === "old") rows.sort((a, b) => DOCS[a.i].ts - DOCS[b.i].ts);
+    else if (state.sort === "az") rows.sort((a, b) => DOCS[a.i].t.localeCompare(DOCS[b.i].t, "de"));
+    else rows.sort((a, b) => DOCS[b.i].ts - DOCS[a.i].ts);   // rel == newest without a query
+  }
+  state.rows = rows;
+
+  const list = $("list");
+  if (!rows.length){
+    list.innerHTML = '<div class="empty"><b>Kein Treffer</b>' +
+      (state.q ? "für „" + esc(state.q) + "“" : "in dieser Auswahl") + "</div>";
+  } else {
+    const terms = res && res.terms;
+    list.innerHTML = rows.map((r, n) => {
+      const d = DOCS[r.i];
+      return '<a class="card" role="listitem" data-n="' + n + '" href="' + esc(d.h) + '">' +
+        '<h2 class="ct">' + mark(d.t) + "</h2>" +
+        '<p class="cs">' + mark(snippet(d, terms)) + "</p>" +
+        '<div class="cm"><span>' + d.dt + '</span><span class="dot">·</span>' +
+        "<span>" + fmt(d.w) + " Wörter</span>" +
+        (d.l ? '<span class="lang"><span class="dot">·</span> <span class="tag">' +
+               esc(d.l) + "</span></span>" : "") +
+        (d.s ? '<span class="tag">' + esc(d.s) + "</span>" : "") +
+        (d.src ? '<button type="button" class="tag srcbtn" data-src="' + esc(d.src) +
+                 '" title="' + esc(d.srcp) + '">↳ ' + esc(d.src) + "</button>" : "") +
+        (res ? '<span class="rel">' + Math.round(r.rel * 100) + "%</span>" : "") +
+        "</div>" +
+        (res ? '<div class="relbar"><i style="width:' + (r.rel * 100).toFixed(1) + '%"></i></div>' : "") +
+        "</a>";
+    }).join("");
+  }
+
+  $("count").textContent = rows.length === N
+    ? N + " Posts"
+    : rows.length + " von " + N;
+  document.body.classList.toggle("has-q", !!state.q);
+  if (state.sel >= rows.length) state.sel = rows.length - 1;
+  paintSel();
+}
+
+function paintSel(){
+  const cards = $("list").children;
+  for (const c of cards) c.removeAttribute("aria-current");
+  if (state.sel < 0 || !cards[state.sel]) return;
+  const el = cards[state.sel];
+  el.setAttribute("aria-current", "true");
+  el.scrollIntoView({ block: "nearest" });
+}
+
+/* --------------------------------------------------------------- preview */
+function open(n, newTab){
+  const row = state.rows[n];
+  if (!row) return;
+  const d = DOCS[row.i];
+  state.sel = n; paintSel();
+  if (newTab || !wide.matches){ window.open(d.h, "_blank", "noopener"); return; }
+  $("frame").src = d.h;
+  $("pvt").textContent = d.t;
+  $("pvd").textContent = d.dt + " · " + fmt(d.w) + " W · " + d.kb + " kB";
+  $("pvopen").href = d.h; $("pvopen").hidden = false;
+  $("pvclose").hidden = false;
+  document.body.classList.add("pv-open");
+}
+function closePreview(){
+  document.body.classList.remove("pv-open");
+  $("frame").removeAttribute("src");
+  $("pvt").textContent = "Vorschau"; $("pvd").textContent = "";
+  $("pvopen").hidden = true; $("pvclose").hidden = true;
+}
+
+/* ---------------------------------------------------------------- events */
+let timer = 0;
+$("q").addEventListener("input", e => {
+  state.q = e.target.value;
+  clearTimeout(timer);
+  timer = setTimeout(() => { state.sel = -1; render(); }, 70);
+});
+$("clear").onclick = () => { $("q").value = ""; state.q = ""; state.sel = -1; render(); $("q").focus(); };
+$("sort").value = state.sort;
+$("sort").onchange = e => {
+  state.sort = e.target.value;
+  localStorage.setItem("bloggen.sort", state.sort);
+  render();
+};
+$("pvclose").onclick = closePreview;
+
+$("list").addEventListener("click", e => {
+  const src = e.target.closest(".srcbtn");
+  if (src){ e.preventDefault(); filterSource(src.dataset.src); return; }
+  const card = e.target.closest(".card");
+  if (!card) return;
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;  // let the browser do it
+  if (!wide.matches) return;                                          // plain link on narrow
+  e.preventDefault();
+  open(+card.dataset.n, false);
+});
+
+document.addEventListener("keydown", e => {
+  const typing = e.target === $("q");
+  if (e.key === "/" && !typing){ e.preventDefault(); $("q").focus(); $("q").select(); return; }
+  if (e.key === "k" && (e.ctrlKey || e.metaKey)){ e.preventDefault(); $("q").focus(); $("q").select(); return; }
+  if (e.key === "Escape"){
+    if (state.q){ $("clear").click(); }
+    else if (document.body.classList.contains("pv-open")) closePreview();
+    else $("q").blur();
+    return;
+  }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp"){
+    if (!state.rows.length) return;
+    e.preventDefault();
+    const step = e.key === "ArrowDown" ? 1 : -1;
+    state.sel = Math.max(0, Math.min(state.rows.length - 1, state.sel + step));
+    paintSel();
+    if (wide.matches && document.body.classList.contains("pv-open")) open(state.sel, false);
+    return;
+  }
+  if (e.key === "Enter" && state.sel >= 0){ e.preventDefault(); open(state.sel, e.shiftKey); }
+});
+
+wide.addEventListener("change", () => { if (!wide.matches) closePreview(); });
+
+/* ----------------------------------------------------------------- theme */
+(function theme(){
+  const btn = $("theme"), saved = localStorage.getItem("bloggen.theme");
+  const apply = v => {
+    if (v === "auto") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", v);
+    btn.title = "Theme: " + v;
+  };
+  let cur = saved || "auto";
+  apply(cur);
+  btn.onclick = () => {
+    cur = cur === "auto" ? "light" : cur === "light" ? "dark" : "auto";
+    localStorage.setItem("bloggen.theme", cur);
+    apply(cur);
+  };
+})();
+
+/* ------------------------------------------------------------------ boot */
+(function boot(){
+  const days = DOCS.map(d => d.dt).sort();
+  $("sub").textContent = N + " Posts · " + days[0] + " – " + days[days.length - 1] +
+                         " · Index " + META.built;
+  const mins = Math.round(META.words / 220);
+  $("stats").innerHTML =
+    '<div class="stat"><b>' + N + "</b><span>Posts</span></div>" +
+    '<div class="stat"><b>' + fmt(META.words) + "</b><span>Wörter</span></div>" +
+    '<div class="stat"><b>' + (mins > 90 ? (mins / 60).toFixed(1).replace(".", ",") + " h"
+                                         : mins + " min") + "</b><span>Lesezeit</span></div>" +
+    '<div class="stat"><b>' + META.tracked + "/" + N + "</b><span>mit Quelle</span></div>";
+  render();
+  if (wide.matches){ open(0, false); $("q").focus(); }
+})();
+</script>
+</body>
+</html>

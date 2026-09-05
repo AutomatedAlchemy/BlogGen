@@ -9,11 +9,17 @@ going through Gemini generation.
 Deliberately standalone: it does NOT import main.py, which pulls in
 google.generativeai, termios/tty terminal machinery and a GEMINI_API_KEY
 requirement at module scope. The only things duplicated from main.py are the
-output-dir and browser constants below — keep them in sync.
+output-dir and browser constants below — keep them in sync. (provenance.py is
+stdlib-only and safe to import.)
 
 Usage:
     publish.py --html post.html [--image-files a.png b.png] [--name my-post]
-               [--no-open]
+               [--source PATH_OR_TOPIC ...] [--no-open]
+
+Every post records where it came from — see provenance.py. The working
+directory is captured automatically, so run this from the project the post is
+about; add --source when the origin is something more specific (a file, a repo
+elsewhere, a URL) or when there is no file to point at.
 
 Contract for the HTML: reference images by **basename only**
 (`<img src="fig1.png">`), and pass those files via --image-files. They are
@@ -28,6 +34,11 @@ import re
 import shutil
 import sys
 import webbrowser
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import provenance  # noqa: E402  — sibling module, needs _HERE on sys.path first
 
 # --- kept in sync with main.py ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -74,7 +85,7 @@ def check_image_refs(html, provided_basenames):
     return warnings
 
 
-def publish(html_path, image_files, name=None, open_browser=True):
+def publish(html_path, image_files, name=None, open_browser=True, sources=None):
     with open(html_path, "r", encoding="utf-8") as f:
         html = f.read()
 
@@ -98,6 +109,12 @@ def publish(html_path, image_files, name=None, open_browser=True):
 
     for warning in check_image_refs(html, basenames):
         print(colored(f"Warning: {warning}", "yellow"))
+
+    record = provenance.collect("agent", inputs=[html_path] + list(image_files or []),
+                                sources=sources)
+    provenance.write(post_dir, record)
+    html = provenance.stamp(html, record)
+    print(colored(f"Source: {provenance.describe(record)}", "cyan"))
 
     out_html = os.path.join(post_dir, "index.html")
     with open(out_html, "w", encoding="utf-8") as f:
@@ -127,6 +144,9 @@ def main():
     parser.add_argument("--image-files", nargs="*", default=[],
                         help="Images the HTML references by basename")
     parser.add_argument("--name", help="Folder-name stem (default: the <title>)")
+    parser.add_argument("--source", nargs="*", default=[], metavar="ORIGIN",
+                        help="Where the material came from: a path, a repo, a URL, "
+                             "or a topic. The working directory is recorded anyway.")
     parser.add_argument("--no-open", action="store_true", help="Do not launch the browser")
     args = parser.parse_args()
 
@@ -134,7 +154,8 @@ def main():
         print(colored(f"Error: no such file: {args.html}", "red"))
         return 1
 
-    return 0 if publish(args.html, args.image_files, args.name, not args.no_open) else 1
+    return 0 if publish(args.html, args.image_files, args.name,
+                        not args.no_open, args.source) else 1
 
 
 if __name__ == "__main__":

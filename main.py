@@ -84,10 +84,24 @@ PY=/home/prob/Synced/repos/prob_ubuntu_environment/Py3EnvShare/bin/python3
 "$PY" "$PUB" --html /path/post.html --image-files /abs/fig1.png /abs/fig2.png
 ```
 
-`publish.py` flags: `--name <slug>` (default: the `<title>`), `--no-open`.
+`publish.py` flags: `--name <slug>` (default: the `<title>`), `--no-open`,
+`--source <origin ...>`.
 It warns if an `<img src>` is a path rather than a basename, references a file
 you did not pass, or if a supplied image is never referenced — fix those, they
 mean a broken image in the published post.
+
+## Always record where the material came from
+
+Every post gets a `source.json` sidecar (and a matching `<meta>` tag) naming
+the working directory, the git repo + commit, and the inputs. That is what
+makes "list the posts about my mujoco training" answerable later, so:
+
+- **Run publish.py from the directory the post is about** — the repo the work
+  happened in, not the scratchpad. The cwd is captured automatically.
+- Add `--source` when the origin is more specific than the cwd or is not a
+  file at all: `--source .state/status.html`, `--source https://…`,
+  `--source "conversation: sim-to-sim transfer gap"`. Repeatable.
+- Both apply to Mode A too (`main.py --source …`).
 
 ## Mode A — delegate to Gemini
 
@@ -295,7 +309,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 # Model this tool prefers, kept ahead of the shared .env lists so the blogpost
 # generator uses it first; the env-configured models remain as fallbacks (and
 # the generation loop already skips a MODEL NOT FOUND id gracefully).
-PREFERRED_MODEL = "gemini-3.6-flash"
+# Overridable per run with BLOGGEN_MODEL=<model id>.
+PREFERRED_MODEL = os.getenv("BLOGGEN_MODEL", "gemini-3.6-flash")
 
 def get_candidate_models():
     """Unique, ordered model list: PREFERRED_MODEL first, then any models from the
@@ -331,6 +346,24 @@ BLOGPOST_DIR = os.path.join(SCRIPT_DIR, "blogposts")
 # first save, reused thereafter). See _session_post_dir().
 _SESSION_POST_DIR = None
 
+# Provenance for this invocation — where the material came from. Filled in by
+# main() from the CLI args, read by both save paths. See provenance.py.
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+import provenance  # noqa: E402  — sibling module, needs SCRIPT_DIR on sys.path
+
+_SOURCE_INPUTS = []      # files this run actually read
+_SOURCE_DECLARED = []    # --source values, if the caller named an origin
+
+
+def _record_provenance(post_dir, html_content):
+    """Write the sidecar, stamp the HTML, report it. Returns the new HTML."""
+    record = provenance.collect("gemini", inputs=_SOURCE_INPUTS,
+                                sources=_SOURCE_DECLARED)
+    provenance.write(post_dir, record)
+    print(colored(f"Source: {provenance.describe(record)}", "cyan"))
+    return provenance.stamp(html_content, record)
+
 
 def _session_post_dir(base_name):
     """Return this session's post folder under blogposts/, creating it once.
@@ -360,6 +393,9 @@ def parse_arguments():
     parser.add_argument("--image-files", type=str, nargs='*', help=argparse.SUPPRESS)  # Paths to image files
     parser.add_argument("--raw-text-file", type=str, help=argparse.SUPPRESS)  # Path to temp file with pasted text
     parser.add_argument("--content-dir", type=str, help=argparse.SUPPRESS)  # Directory with extracted PDF images
+    parser.add_argument("--source", type=str, nargs='*', default=[], metavar="ORIGIN",
+                        help="Where the material came from: a path, a repo, a URL, or a "
+                             "topic. The working directory is recorded either way.")
     return parser.parse_args()
 
 
@@ -1102,7 +1138,6 @@ YOUR TASK:
 4. Note any data, numbers, relationships, or patterns shown
 5. Infer the context - what is this about? Why might someone have captured this?
 6. Identify 2-3 aspects that would benefit from deeper exploration or explanation
-
 Be thorough and analytical. Your analysis will be used to create an insightful blogpost."""
 
     # Phase 2: HTML generation prompt (will be formatted with image_filename and date)
@@ -1124,8 +1159,7 @@ Before writing any HTML, plan your approach:
   * Tooltips for technical terms
 - How should the screenshot be presented? (hero image, floating, with annotations?)
 
-STEP 2 - CONTENT REQUIREMENTS:
-- Expand on the key concepts you identified with deeper context and scientific/technical grounding
+STEP 2 - CONTENT REQUIREMENTS:- Expand on the key concepts you identified with deeper context and scientific/technical grounding
 - Explain complex topics in an accessible but substantive way
 - Make connections to related concepts, history, or applications
 - Include the original screenshot prominently as a visual reference
@@ -1321,6 +1355,8 @@ def save_and_open_blogpost(html_content, temp_screenshot, image_filename):
     shutil.copy(temp_screenshot, img_path)
     print(colored(f"Saved image: {img_path}", "cyan"))
 
+    html_content = _record_provenance(post_dir, html_content)
+
     # Save HTML
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html_content)
@@ -1407,7 +1443,6 @@ IMAGE_DESCRIPTIONS_END
    - Notable data, figures, or findings
    - Context and significance
    - 2-3 angles for deeper exploration in the blogpost
-
 Be thorough - your analysis drives the blogpost generation."""
 
     print(colored("\n========== PHASE 1: ANALYZING CONTENT & IMAGES ==========", "cyan", attrs=["bold"]))
@@ -1517,8 +1552,7 @@ Before writing any HTML, plan your approach:
   * Tooltips for technical terms
 - How should the images be integrated? (gallery, inline, with captions?)
 
-STEP 2 - CONTENT REQUIREMENTS:
-- Expand on the key concepts with deeper context and scientific/technical grounding
+STEP 2 - CONTENT REQUIREMENTS:- Expand on the key concepts with deeper context and scientific/technical grounding
 - Explain complex topics in an accessible but substantive way
 - Make connections to related concepts, history, or applications
 - Write in an engaging, informative style with clear sections
@@ -1612,6 +1646,8 @@ def save_and_open_blogpost_content(html_content, image_descriptions, source_name
             shutil.copy(src_path, dst_path)
             print(colored(f"Saved image: {dst_filename}", "cyan"))
 
+    html_content = _record_provenance(post_dir, html_content)
+
     # Save HTML
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html_content)
@@ -1635,6 +1671,15 @@ def main():
 
     # --install / --remove / --install-skill / --uninstall-skill are all handled
     # up top, before the heavy imports, so execution never reaches here for them.
+
+    # Remember what this run was fed, so the saved post can say where it came
+    # from. --screenshot-path/--raw-text-file are usually temp files; recording
+    # them is still truthful, and the cwd is what carries the real signal.
+    global _SOURCE_INPUTS, _SOURCE_DECLARED
+    _SOURCE_INPUTS = [p for p in ([args.screenshot_path, args.raw_text_file]
+                                  + list(args.text_files or [])
+                                  + list(args.image_files or [])) if p]
+    _SOURCE_DECLARED = list(args.source or [])
 
     # Track usage
     try:
