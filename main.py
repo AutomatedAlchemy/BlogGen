@@ -80,6 +80,8 @@ PY=/home/prob/Synced/repos/prob_ubuntu_environment/Py3EnvShare/bin/python3
 #    <script> pair if there is no maths. Write the result anywhere, e.g.
 #    the scratchpad.
 # 2. Reference images by BASENAME ONLY: <img src="fig1.png">
+# 2b. Write in the language of the source: a German screenshot/PDF/conversation
+#     gets a German post. Set <html lang="de"> to match - the index reads it.
 # 3. Publish (creates blogposts/<slug>_<timestamp>/, copies images, opens Firefox):
 "$PY" "$PUB" --html /path/post.html --image-files /abs/fig1.png /abs/fig2.png
 ```
@@ -1138,6 +1140,12 @@ YOUR TASK:
 4. Note any data, numbers, relationships, or patterns shown
 5. Infer the context - what is this about? Why might someone have captured this?
 6. Identify 2-3 aspects that would benefit from deeper exploration or explanation
+7. State the dominant language of the visible text on a line of its own, exactly:
+   SOURCE_LANGUAGE: <English name of the language, or "none" if the image has no text>
+
+Write this analysis in English regardless of the language in the image - it is
+internal working notes, not the blogpost.
+
 Be thorough and analytical. Your analysis will be used to create an insightful blogpost."""
 
     # Phase 2: HTML generation prompt (will be formatted with image_filename and date)
@@ -1159,7 +1167,15 @@ Before writing any HTML, plan your approach:
   * Tooltips for technical terms
 - How should the screenshot be presented? (hero image, floating, with annotations?)
 
-STEP 2 - CONTENT REQUIREMENTS:- Expand on the key concepts you identified with deeper context and scientific/technical grounding
+STEP 2 - CONTENT REQUIREMENTS:
+LANGUAGE:
+- Write the blogpost in the language named by SOURCE_LANGUAGE in the analysis.
+  A German screenshot gets a German post, a French one a French post.
+- If SOURCE_LANGUAGE is "none" or absent, write in English.
+- Set the matching <html lang="..."> code (de, en, fr, ...); it is read by the
+  blogpost index.
+- This applies to everything the reader sees, including the closing quote.
+- Expand on the key concepts you identified with deeper context and scientific/technical grounding
 - Explain complex topics in an accessible but substantive way
 - Make connections to related concepts, history, or applications
 - Include the original screenshot prominently as a visual reference
@@ -1443,6 +1459,12 @@ IMAGE_DESCRIPTIONS_END
    - Notable data, figures, or findings
    - Context and significance
    - 2-3 angles for deeper exploration in the blogpost
+   - The dominant language of the source text, on a line of its own, exactly:
+     SOURCE_LANGUAGE: <English name of the language, or "none" if there is no text>
+
+Write this analysis in English regardless of the language of the source - it is
+internal working notes, not the blogpost.
+
 Be thorough - your analysis drives the blogpost generation."""
 
     print(colored("\n========== PHASE 1: ANALYZING CONTENT & IMAGES ==========", "cyan", attrs=["bold"]))
@@ -1552,7 +1574,15 @@ Before writing any HTML, plan your approach:
   * Tooltips for technical terms
 - How should the images be integrated? (gallery, inline, with captions?)
 
-STEP 2 - CONTENT REQUIREMENTS:- Expand on the key concepts with deeper context and scientific/technical grounding
+STEP 2 - CONTENT REQUIREMENTS:
+LANGUAGE:
+- Write the blogpost in the language named by SOURCE_LANGUAGE in the analysis.
+  A German screenshot gets a German post, a French one a French post.
+- If SOURCE_LANGUAGE is "none" or absent, write in English.
+- Set the matching <html lang="..."> code (de, en, fr, ...); it is read by the
+  blogpost index.
+- This applies to everything the reader sees, including the closing quote.
+- Expand on the key concepts with deeper context and scientific/technical grounding
 - Explain complex topics in an accessible but substantive way
 - Make connections to related concepts, history, or applications
 - Write in an engaging, informative style with clear sections
