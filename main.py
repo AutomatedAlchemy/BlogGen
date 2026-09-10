@@ -236,18 +236,18 @@ if "--uninstall-skill" in sys.argv:
     sys.exit(0)
 
 # ================= INSTALL / REMOVE (before heavy imports) =================
-# Canonical import is the cli_tool_kit pip package; fall back to the in-tree
+# Canonical import is the cli_tools_kit pip package; fall back to the in-tree
 # shim for environments without it (subtree exports, etc.).
 if "--install" in sys.argv or "--remove" in sys.argv:
     try:
-        from cli_tool_kit import ToolInstaller, ToolMetadata
+        from cli_tools_kit import ToolInstaller, ToolMetadata
     except ImportError:
         try:
             from _shared.tool_installer import ToolInstaller, ToolMetadata
         except ImportError:
             print(
-                "--install/--remove need the cli-tool-kit package "
-                "(pip install cli-tool-kit). Blogpost generation itself works "
+                "--install/--remove need the cli-tools-kit package "
+                "(pip install cli-tools-kit). Blogpost generation itself works "
                 "without it via the CLI flags — see the README."
             )
             sys.exit(1)
@@ -807,7 +807,7 @@ def open_content_dialog():
     """Open the interactive data-retrieval window for blogpost generation.
 
     The tkinter window lives in the optional ``_shared.gui`` package (part of the
-    author's tools monorepo / cli-tool-kit). In a standalone checkout it won't be
+    author's tools monorepo / cli-tools-kit). In a standalone checkout it won't be
     importable — that's fine: the CLI flags (``--screenshot-path`` /
     ``--image-files`` / ``--text-files`` / ``--raw-text-file``) cover every
     headless path, so we just tell the user to use those instead.

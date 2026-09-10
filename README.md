@@ -117,7 +117,7 @@ Re-run it after publishing; the page is regenerated from scratch each time.
 ## Optional desktop / Claude-Code integration
 
 - `python main.py --install` registers a desktop launcher (and the Claude Code
-  skill). This needs the [`cli-tool-kit`](https://github.com/Probst1nator/cli-tool-kit)
+  skill). This needs the [`cli-tools-kit`](https://github.com/Probst1nator/cli-tools-kit)
   package; blogpost generation itself works without it via the CLI flags above.
 - `python main.py --install-skill` / `--uninstall-skill` register a Claude Code
   `bloggen` skill (`~/.claude/skills/bloggen/SKILL.md`).
