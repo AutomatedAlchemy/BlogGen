@@ -32,15 +32,20 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 # ================= CLAUDE SKILL (single source of truth) =================
-# Edit SKILL_MD_CONTENT here, then run `python main.py --install-skill`.
+# Edit SKILL_MD_TEMPLATE here, then run `python main.py --install-skill`.
 # Never hand-edit the installed file — --install-skill overwrites it.
+# The template carries {tool_dir} / {python} / {env_file} placeholders that
+# render_skill_md() fills in from THIS checkout at install time, so the written
+# SKILL.md names the paths of the machine it was installed on and no author's
+# layout is baked into the source.
 # Legacy skill dir names this tool has shipped under; pruned on (re)install so
 # hosts that synced an older name don't keep a stale ~/.claude/skills entry.
 _LEGACY_SKILL_NAMES = ["screenshot-blogpost"]
 SKILL_DIR = Path.home() / ".claude" / "skills" / "bloggen"
 SKILL_FILE = SKILL_DIR / "SKILL.md"
+TOOL_DIR = Path(__file__).resolve().parent
 
-SKILL_MD_CONTENT = '''---
+SKILL_MD_TEMPLATE = '''---
 name: bloggen
 description: Turn a screenshot, image(s), PDF, pasted text, or the current conversation into a self-contained, styled HTML blogpost saved to disk and opened in the browser. You may author the HTML yourself (default) or delegate writing to Gemini. Use when the user wants content written up as a shareable HTML article — "make a blogpost from this screenshot/image/PDF", "turn this into an HTML write-up", "write up what's in this screenshot", "turn our conversation/this discussion into a blogpost", "Blogpost aus diesem Screenshot/Bild/PDF", "mach aus unserem Gespräch einen Artikel". NOT for plain OCR / text or LaTeX extraction (use transcribe-image) and NOT for the daily digest (use digest).
 ---
@@ -71,11 +76,11 @@ which adds wording drift without adding information. Choose Mode B when:
 - the user asked for *your* writing, or wants to iterate on the text with you.
 
 ```bash
-PUB=/home/prob/Synced/repos/AutomatedAlchemy/bloggen/publish.py
-PY=/home/prob/Synced/repos/prob_ubuntu_environment/Py3EnvShare/bin/python3
+PUB={tool_dir}/publish.py
+PY={python}
 
 # 1. Start from the house template so styling stays consistent across modes:
-#    /home/prob/Synced/repos/AutomatedAlchemy/bloggen/assets/template.html
+#    {tool_dir}/assets/template.html
 #    Read it, fill TITLE / standfirst / <article> body, drop the MathJax
 #    <script> pair if there is no maths. Write the result anywhere, e.g.
 #    the scratchpad.
@@ -122,14 +127,15 @@ Mode B exists for.
 
 Run the tool's headless `--analyze-only` content mode directly. Re-define these
 in **every** Bash call (shell state does not persist between calls). The
-`BLOGGEN_ENV` export points the tool at the fleet `.env`
-(`GEMINI_API_KEY` + shared model lists) — the tool parses it with python-dotenv,
-which handles the multi-line model lists that a shell `source` chokes on:
+`BLOGGEN_ENV` export points the tool at the `.env` holding `GEMINI_API_KEY`
+(plus any shared model lists) — the tool parses it with python-dotenv, which
+handles the multi-line model lists that a shell `source` chokes on. Set it only
+to override the default; without it the tool reads the `.env` beside `main.py`:
 
 ```bash
-PY=/home/prob/Synced/repos/prob_ubuntu_environment/Py3EnvShare/bin/python3
-SB=/home/prob/Synced/repos/AutomatedAlchemy/bloggen/main.py
-export BLOGGEN_ENV=/home/prob/Synced/repos/tools/.env
+PY={python}
+SB={tool_dir}/main.py
+export BLOGGEN_ENV={env_file}
 ```
 
 ### Mode A commands
@@ -174,13 +180,36 @@ user needs to know the wording is not yours before forwarding it to anyone.
 
 ## Notes
 - Mode B needs no API key. Mode A needs `GEMINI_API_KEY` in
-  `~/Synced/repos/tools/.env` (already set on this fleet).
+  `{env_file}`, or in any `.env` named by `BLOGGEN_ENV`.
 - Prefers `gemini-3.6-flash`, then falls back through the shared `.env` model lists.
 - `--text-files` accepts PDFs (text + images extracted) and plain-text files.
 - `--image-files` accepts ordinary image files; up to 5 images per PDF are pulled in.
 - This tool *writes about* the content (generation). For straight OCR / LaTeX
   extraction of a page, use the `transcribe-image` skill instead.
 '''
+
+
+def _tool_python() -> str:
+    """The interpreter the skill's example commands should use.
+
+    Prefer a venv the tool owns (that is where its dependencies are installed by
+    the cli-tools-kit installer), otherwise the interpreter running this script.
+    """
+    for candidate in (TOOL_DIR / ".venv" / "bin" / "python3",
+                      TOOL_DIR / ".venv" / "bin" / "python",
+                      TOOL_DIR / ".venv" / "Scripts" / "python.exe"):
+        if candidate.exists():
+            return str(candidate)
+    return sys.executable
+
+
+def render_skill_md() -> str:
+    """Fill the SKILL.md template with this checkout's paths."""
+    return SKILL_MD_TEMPLATE.format(
+        tool_dir=TOOL_DIR,
+        python=_tool_python(),
+        env_file=TOOL_DIR / ".env",
+    )
 
 
 def _prune_legacy_skill_dirs() -> None:
@@ -204,11 +233,12 @@ def _install_skill() -> None:
     """Write (or refresh) ~/.claude/skills/bloggen/SKILL.md from the inline source."""
     _prune_legacy_skill_dirs()
     SKILL_DIR.mkdir(parents=True, exist_ok=True)
+    content = render_skill_md()
     pre_existed = SKILL_FILE.exists()
-    if pre_existed and SKILL_FILE.read_text(encoding="utf-8") == SKILL_MD_CONTENT:
+    if pre_existed and SKILL_FILE.read_text(encoding="utf-8") == content:
         print(f"  - Skill already up-to-date: {SKILL_FILE}")
         return
-    SKILL_FILE.write_text(SKILL_MD_CONTENT, encoding="utf-8")
+    SKILL_FILE.write_text(content, encoding="utf-8")
     verb = "Refreshed" if pre_existed else "Installed"
     print(f"  Skill {verb}: {SKILL_FILE}")
     print("  Claude Code picks this up live - no restart needed.")

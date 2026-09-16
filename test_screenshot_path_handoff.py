@@ -139,7 +139,24 @@ def test_skill_frontmatter_name_matches_dir(main_mod):
     # The on-disk skill dir, the SKILL.md frontmatter, and the advertised
     # skill_name must all agree, or the installer GUI can't pair install/uninstall.
     assert main_mod.SKILL_DIR.name == "bloggen"
-    assert main_mod.SKILL_MD_CONTENT.startswith("---\nname: bloggen\n")
+    assert main_mod.render_skill_md().startswith("---\nname: bloggen\n")
+
+
+def test_skill_md_template_has_no_hardcoded_paths(main_mod):
+    # The template must name no machine's layout: every path in the written
+    # SKILL.md is rendered from this checkout at install time.
+    template = main_mod.SKILL_MD_TEMPLATE
+    for placeholder in ("{tool_dir}", "{python}", "{env_file}"):
+        assert placeholder in template
+    assert "/home/" not in template
+    assert "Py3EnvShare" not in template
+
+    rendered = main_mod.render_skill_md()
+    tool_dir = str(main_mod.TOOL_DIR)
+    assert f"PUB={tool_dir}/publish.py" in rendered
+    assert f"SB={tool_dir}/main.py" in rendered
+    assert f"export BLOGGEN_ENV={tool_dir}/.env" in rendered
+    assert f"PY={main_mod._tool_python()}" in rendered
 
 
 def test_skill_install_uninstall_roundtrip(main_mod, monkeypatch, tmp_path):
@@ -151,11 +168,11 @@ def test_skill_install_uninstall_roundtrip(main_mod, monkeypatch, tmp_path):
     assert not skill_file.exists()
 
     main_mod._install_skill()
-    assert skill_file.read_text(encoding="utf-8") == main_mod.SKILL_MD_CONTENT
+    assert skill_file.read_text(encoding="utf-8") == main_mod.render_skill_md()
 
     # Idempotent: re-installing leaves identical content (and doesn't raise).
     main_mod._install_skill()
-    assert skill_file.read_text(encoding="utf-8") == main_mod.SKILL_MD_CONTENT
+    assert skill_file.read_text(encoding="utf-8") == main_mod.render_skill_md()
 
     # Uninstall removes the file AND the now-empty skill dir.
     main_mod._uninstall_skill()
