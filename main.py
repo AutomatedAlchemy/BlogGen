@@ -421,6 +421,7 @@ def parse_arguments():
     parser.add_argument("--remove", action="store_true", help="Remove desktop shortcut")
     parser.add_argument("--analyze-only", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--screenshot-path", type=str, help=argparse.SUPPRESS)  # Parent passes its per-invocation temp screenshot path to the child
+    parser.add_argument("--screenshot-is-temp", action="store_true", help=argparse.SUPPRESS)  # Set only by the parent: the child may delete that temp file
     parser.add_argument("--text-files", type=str, nargs='*', help=argparse.SUPPRESS)  # Paths to text/PDF files
     parser.add_argument("--image-files", type=str, nargs='*', help=argparse.SUPPRESS)  # Paths to image files
     parser.add_argument("--raw-text-file", type=str, help=argparse.SUPPRESS)  # Path to temp file with pasted text
@@ -438,7 +439,7 @@ def launch_terminal_process():
     # Python process and would otherwise call mkdtemp() again, landing on a
     # different dir and failing to find the screenshot the parent just saved.
     cmd = ["konsole", "-e", python_exec, script_path,
-           "--analyze-only", "--screenshot-path", TEMP_FILENAME]
+           "--analyze-only", "--screenshot-path", TEMP_FILENAME, "--screenshot-is-temp"]
     subprocess.Popen(cmd)
 
 def auto_close_timer(seconds=10):
@@ -1431,11 +1432,18 @@ def _rmdir_if_temp(path):
             pass
 
 
-def cleanup(screenshot_path=None):
+def _owns_screenshot(args):
+    """True when the screenshot is the GUI's own temp capture. A file the user
+    passed with --screenshot-path belongs to the user and is never deleted."""
+    return not args.screenshot_path or args.screenshot_is_temp
+
+
+def cleanup(screenshot_path=None, delete_screenshot=True):
     path = screenshot_path or TEMP_FILENAME
-    if os.path.exists(path):
-        os.remove(path)
-    _rmdir_if_temp(path)
+    if delete_screenshot:
+        if os.path.exists(path):
+            os.remove(path)
+        _rmdir_if_temp(path)
     # The child also mkdtemp'd its own (unused) dir at import — drop it too.
     _rmdir_if_temp(TEMP_FILENAME)
 
@@ -1864,7 +1872,7 @@ def main():
                 save_and_open_blogpost(html_content, screenshot_path, image_filename)
 
                 # Cleanup and countdown
-                cleanup(screenshot_path)
+                cleanup(screenshot_path, delete_screenshot=_owns_screenshot(args))
                 run_interactive_loop(chat, image_filename, image_filename.replace(".png", ""))
 
         except Exception as e:

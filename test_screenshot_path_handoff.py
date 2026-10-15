@@ -113,6 +113,29 @@ def test_launch_passes_screenshot_path_to_child(main_mod, monkeypatch):
         "it will look in a different mkdtemp dir"
     )
     assert cmd[cmd.index(main_mod.TEMP_FILENAME) - 1] == "--screenshot-path"
+    # The parent marks the file as its own temp capture, so the child may delete it.
+    assert "--screenshot-is-temp" in cmd
+
+
+def test_cleanup_keeps_a_screenshot_the_user_passed(main_mod, monkeypatch, tmp_path):
+    user_file = tmp_path / "shot.png"
+    user_file.write_bytes(b"png")
+
+    monkeypatch.setattr(main_mod.sys, "argv",
+                        ["main.py", "--analyze-only", "--screenshot-path", str(user_file)])
+    args = main_mod.parse_arguments()
+    assert not main_mod._owns_screenshot(args)
+    main_mod.cleanup(str(user_file), delete_screenshot=main_mod._owns_screenshot(args))
+    assert user_file.exists()
+
+    # The GUI's hand-off marks the file as its temp capture: that one goes.
+    monkeypatch.setattr(main_mod.sys, "argv",
+                        ["main.py", "--analyze-only", "--screenshot-path", str(user_file),
+                         "--screenshot-is-temp"])
+    args = main_mod.parse_arguments()
+    assert main_mod._owns_screenshot(args)
+    main_mod.cleanup(str(user_file), delete_screenshot=main_mod._owns_screenshot(args))
+    assert not user_file.exists()
 
 
 def test_preferred_model_is_tried_first(main_mod):

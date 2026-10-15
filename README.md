@@ -10,8 +10,7 @@ concepts it found. The result is written to disk and opened in your browser.
 One screenshot of an old book vignette goes in:
 
 ```bash
-cp vignette.png /tmp/shot.png    # screenshot mode deletes its input file after the run
-python main.py --analyze-only --screenshot-path /tmp/shot.png
+python main.py --analyze-only --screenshot-path vignette.png
 ```
 
 It writes a folder with the post and a copy of the image under `blogposts/` next
