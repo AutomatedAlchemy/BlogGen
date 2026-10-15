@@ -5,11 +5,28 @@ Turn a screenshot, image(s), PDF, pasted text, or the current conversation into 
 HTML5 article (inline responsive CSS, optional MathJax) that expands on the
 concepts it found. The result is written to disk and opened in your browser.
 
-**See one:** [a full, rendered post](https://probable.work/bloggen/example/) — generated
-from a single screenshot, served exactly as the tool wrote it.
+## Example
 
-> _A short demo GIF / video will live here._
-<!-- ![demo](assets/demo.gif) -->
+One screenshot of an old book vignette goes in:
+
+```bash
+cp vignette.png /tmp/shot.png    # screenshot mode deletes its input file after the run
+python main.py --analyze-only --screenshot-path /tmp/shot.png
+```
+
+It writes a folder with the post and a copy of the image under `blogposts/` next
+to `main.py`, and prints (paths shortened here):
+
+```
+Saved image: …/blogposts/blogpost_20260825_195410/screenshot_20260825_195410.png
+Saved HTML: …/blogposts/blogpost_20260825_195410/index.html
+```
+
+The full post is in [`examples/book-vignette/`](examples/book-vignette/), exactly as
+the tool wrote it. GitHub shows an `.html` file as source, so clone the repo and open
+`examples/book-vignette/index.html` in a browser, or view it rendered through
+[raw.githack](https://raw.githack.com/AutomatedAlchemy/BlogGen/main/examples/book-vignette/index.html).
+Gemini writes a different post on every run, so your output will differ.
 
 ## How it works
 
