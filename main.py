@@ -53,8 +53,9 @@ description: Turn a screenshot, image(s), PDF, pasted text, or the current conve
 # BlogGen — image/PDF/text/conversation -> styled HTML blogpost
 
 Produces a self-contained HTML5 blogpost (inline CSS, responsive layout,
-optional MathJax) in its own folder under the tool's `blogposts/` directory —
-an `index.html` plus every image it references — and opens it in Firefox.
+optional MathJax) in its own folder under the tool's `blogposts/` directory, or
+under the folder `BLOGGEN_OUTPUT_DIR` names — an `index.html` plus every image
+it references — and opens it in Firefox.
 
 The writing can be done two ways. **Pick the mode before you run anything.**
 
