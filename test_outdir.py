@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 TOOL_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOL_DIR))
 
@@ -22,14 +24,24 @@ def test_default_is_blogposts_beside_the_tool(tmp_path, monkeypatch):
 
 
 def test_environment_wins_and_expands_the_home_folder(tmp_path, monkeypatch):
+    _no_env(monkeypatch)
     (tmp_path / ".env").write_text(f"{outdir.VAR}=/from/the/file\n")
-    monkeypatch.delenv("BLOGGEN_ENV", raising=False)
     monkeypatch.setenv(outdir.VAR, "~/posts")
     assert outdir.blogpost_dir(str(tmp_path)) == os.path.expanduser("~/posts")
 
 
-def test_env_file_is_read_without_dotenv(tmp_path, monkeypatch):
-    monkeypatch.delenv(outdir.VAR, raising=False)
+@pytest.fixture(params=["python-dotenv", "stdlib reader"])
+def reader(request, monkeypatch):
+    """Run a test once per .env reader; the second run hides python-dotenv."""
+    if request.param == "python-dotenv":
+        pytest.importorskip("dotenv")
+    else:
+        monkeypatch.setitem(sys.modules, "dotenv", None)
+    return request.param
+
+
+def test_env_file_named_by_bloggen_env_is_read(tmp_path, monkeypatch, reader):
+    _no_env(monkeypatch)
     other = tmp_path / "shared.env"
     other.write_text(f'GEMINI_API_KEY=x\nexport {outdir.VAR}="{tmp_path}/out"\n')
     monkeypatch.setenv("BLOGGEN_ENV", str(other))
@@ -44,9 +56,8 @@ def test_env_file_is_found_in_a_parent_folder(tmp_path, monkeypatch):
     assert outdir.blogpost_dir(str(tool)) == str(tmp_path / "shared")
 
 
-def test_the_stdlib_reader_drops_quotes_and_inline_comments(tmp_path, monkeypatch):
+def test_quotes_and_inline_comments_are_dropped(tmp_path, monkeypatch, reader):
     _no_env(monkeypatch)
-    monkeypatch.setitem(sys.modules, "dotenv", None)      # as on a host without python-dotenv
     env = tmp_path / ".env"
     env.write_text(f"{outdir.VAR}=/data/posts  # my posts\n")
     assert outdir.blogpost_dir(str(tmp_path)) == "/data/posts"
