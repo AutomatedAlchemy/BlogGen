@@ -8,7 +8,8 @@ tool.
 The `.env` is found in main.py's order: `BLOGGEN_ENV`, `SCREENSHOT_BLOGPOST_ENV`,
 the one beside the tool, then the nearest one in a parent folder. python-dotenv
 parses it, as in main.py. publish.py and build_index.py also run without
-python-dotenv; then only the environment variable counts, and a note says so.
+python-dotenv; then only the environment variable counts, and a note says so
+when the `.env` sets the variable.
 """
 
 import os
@@ -33,17 +34,28 @@ def _env_file(script_dir):
         folder = parent
 
 
+def _names_the_variable(path):
+    """Whether the .env at *path* mentions VAR at all."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            return VAR in handle.read()
+    except OSError:
+        return False
+
+
 def _from_env_file(path):
     """The value of VAR in the .env at *path*, read by python-dotenv as main.py reads it.
 
-    Without python-dotenv the file is not read and a note says so: one parser,
-    so the three scripts cannot disagree about the folder.
+    One parser, so the three scripts cannot disagree about the folder. Without
+    python-dotenv the file is not read; a note says so when the file sets VAR.
     """
     try:
         from dotenv import dotenv_values
     except ImportError:
-        print(f"note: python-dotenv is not installed, so {VAR} is not read from {path}",
-              file=sys.stderr)
+        if _names_the_variable(path):
+            print(f"note: {path} sets {VAR}, but python-dotenv is not installed, so the "
+                  "value is ignored. Install python-dotenv or export the variable.",
+                  file=sys.stderr)
         return ""
     try:
         return dotenv_values(path).get(VAR) or ""
