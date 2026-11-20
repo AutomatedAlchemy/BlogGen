@@ -168,7 +168,8 @@ patched it.
 
 ## Output (both modes)
 - Saves a per-post folder `blogposts/<name>/` containing `index.html`
-  plus its images, under `.../AutomatedAlchemy/bloggen/blogposts/`, and
+  plus its images, under `blogposts/` beside the tool or under the folder
+  `BLOGGEN_OUTPUT_DIR` names, and
   prints the path as `Saved HTML: <path>` — read that line back to the user.
 - Auto-opens the result in Firefox.
 - Non-interactive runs (Claude's Bash tool) skip the end-of-run countdown and
@@ -368,7 +369,12 @@ import tempfile as _tempfile
 TEMP_FILENAME = os.path.join(
     _tempfile.mkdtemp(prefix="bloggen_"), "screenshot.png"
 )
-BLOGPOST_DIR = os.path.join(SCRIPT_DIR, "blogposts")
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+import outdir  # noqa: E402  (sibling module, needs SCRIPT_DIR on sys.path)
+
+# blogposts/ beside the tool, or the folder BLOGGEN_OUTPUT_DIR names.
+BLOGPOST_DIR = outdir.blogpost_dir(SCRIPT_DIR)
 
 # Folder-per-post layout: every run gets its OWN subdirectory under blogposts/,
 # holding index.html plus all images it references. This keeps the HTML's bare

@@ -32,10 +32,11 @@ from html.parser import HTMLParser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import provenance  # noqa: E402  — sibling module, needs the script dir on sys.path
+import outdir  # noqa: E402
 
 # --- kept in sync with main.py / publish.py ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-BLOGPOST_DIR = os.path.join(SCRIPT_DIR, "blogposts")
+BLOGPOST_DIR = outdir.blogpost_dir(SCRIPT_DIR)
 BROWSER_PATH = os.getenv("BROWSER_PATH", "/usr/bin/firefox")
 
 INDEX_NAME = "index.html"          # generated page, at the root of blogposts/

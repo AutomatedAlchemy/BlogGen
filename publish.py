@@ -39,10 +39,11 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 import provenance  # noqa: E402  — sibling module, needs _HERE on sys.path first
+import outdir  # noqa: E402
 
 # --- kept in sync with main.py ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-BLOGPOST_DIR = os.path.join(SCRIPT_DIR, "blogposts")
+BLOGPOST_DIR = outdir.blogpost_dir(SCRIPT_DIR)
 BROWSER_PATH = os.getenv("BROWSER_PATH", "/usr/bin/firefox")
 
 try:
