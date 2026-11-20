@@ -7,11 +7,12 @@ tool.
 
 The `.env` is found in main.py's order: `BLOGGEN_ENV`, `SCREENSHOT_BLOGPOST_ENV`,
 the one beside the tool, then the nearest one in a parent folder. python-dotenv
-parses it when it is installed. publish.py and build_index.py also run without
-it, so a small reader for this one line stands in.
+parses it, as in main.py. publish.py and build_index.py also run without
+python-dotenv; then only the environment variable counts, and a note says so.
 """
 
 import os
+import sys
 
 VAR = "BLOGGEN_OUTPUT_DIR"
 
@@ -32,35 +33,22 @@ def _env_file(script_dir):
         folder = parent
 
 
-def _parse_value(raw):
-    """The value of one `KEY=value` line: quotes removed, an inline comment dropped."""
-    raw = raw.strip()
-    if raw[:1] in ("'", '"'):
-        end = raw.find(raw[0], 1)
-        return raw[1:end] if end > 0 else raw[1:]
-    return raw.split(" #", 1)[0].strip()
-
-
 def _from_env_file(path):
-    """The value of VAR in the .env at *path*, or '' when the file or the line is missing."""
+    """The value of VAR in the .env at *path*, read by python-dotenv as main.py reads it.
+
+    Without python-dotenv the file is not read and a note says so: one parser,
+    so the three scripts cannot disagree about the folder.
+    """
     try:
         from dotenv import dotenv_values
     except ImportError:
-        dotenv_values = None
-    if dotenv_values is not None:
-        try:
-            return dotenv_values(path).get(VAR) or ""
-        except OSError:
-            return ""
+        print(f"note: python-dotenv is not installed, so {VAR} is not read from {path}",
+              file=sys.stderr)
+        return ""
     try:
-        with open(path, encoding="utf-8") as handle:
-            for line in handle:
-                key, sep, value = line.strip().partition("=")
-                if sep and key.removeprefix("export ").strip() == VAR:
-                    return _parse_value(value)
+        return dotenv_values(path).get(VAR) or ""
     except OSError:
-        pass
-    return ""
+        return ""
 
 
 def blogpost_dir(script_dir):

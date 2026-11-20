@@ -30,17 +30,10 @@ def test_environment_wins_and_expands_the_home_folder(tmp_path, monkeypatch):
     assert outdir.blogpost_dir(str(tmp_path)) == os.path.expanduser("~/posts")
 
 
-@pytest.fixture(params=["python-dotenv", "stdlib reader"])
-def reader(request, monkeypatch):
-    """Run a test once per .env reader; the second run hides python-dotenv."""
-    if request.param == "python-dotenv":
-        pytest.importorskip("dotenv")
-    else:
-        monkeypatch.setitem(sys.modules, "dotenv", None)
-    return request.param
+pytest.importorskip("dotenv")      # the .env cases need python-dotenv, like main.py
 
 
-def test_env_file_named_by_bloggen_env_is_read(tmp_path, monkeypatch, reader):
+def test_env_file_named_by_bloggen_env_is_read(tmp_path, monkeypatch):
     _no_env(monkeypatch)
     other = tmp_path / "shared.env"
     other.write_text(f'GEMINI_API_KEY=x\nexport {outdir.VAR}="{tmp_path}/out"\n')
@@ -56,10 +49,18 @@ def test_env_file_is_found_in_a_parent_folder(tmp_path, monkeypatch):
     assert outdir.blogpost_dir(str(tool)) == str(tmp_path / "shared")
 
 
-def test_quotes_and_inline_comments_are_dropped(tmp_path, monkeypatch, reader):
+def test_quotes_and_inline_comments_are_dropped(tmp_path, monkeypatch):
     _no_env(monkeypatch)
     env = tmp_path / ".env"
     env.write_text(f"{outdir.VAR}=/data/posts  # my posts\n")
     assert outdir.blogpost_dir(str(tmp_path)) == "/data/posts"
     env.write_text(f'{outdir.VAR}="/data/my posts" # c\n')
     assert outdir.blogpost_dir(str(tmp_path)) == "/data/my posts"
+
+
+def test_without_dotenv_the_file_is_not_read_and_a_note_says_so(tmp_path, monkeypatch, capsys):
+    _no_env(monkeypatch)
+    monkeypatch.setitem(sys.modules, "dotenv", None)
+    (tmp_path / ".env").write_text(f"{outdir.VAR}=/data/posts\n")
+    assert outdir.blogpost_dir(str(tmp_path)) == str(tmp_path / "blogposts")
+    assert "python-dotenv is not installed" in capsys.readouterr().err
