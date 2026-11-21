@@ -58,7 +58,7 @@ Optional `.env` knobs:
 | `COMPETENT_GEMINI_MODELS`, `STRONG_GEMINI_MODELS` | comma-separated fallback model lists, tried after the preferred model | built-in fallbacks |
 | `BROWSER_PATH` | browser to open the result | `/usr/bin/firefox` |
 | `BLOGGEN_ENV` | explicit path to a `.env` file | — |
-| `BLOGGEN_OUTPUT_DIR` | folder the posts are written to (`~` is expanded) | `blogposts/` next to `main.py` |
+| `BLOGGEN_OUTPUT_DIR` | folder the posts are written to (`~` is expanded; a relative path counts from the folder of `main.py`) | `blogposts/` next to `main.py` |
 
 The preferred model is `gemini-3.6-flash`; the env model lists (and a small
 built-in list) act as fallbacks.

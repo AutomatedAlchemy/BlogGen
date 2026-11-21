@@ -71,4 +71,6 @@ def blogpost_dir(script_dir):
         value = _from_env_file(env_file) if env_file else ""
     if not value:
         return os.path.join(script_dir, "blogposts")
-    return os.path.abspath(os.path.expanduser(value))
+    # A relative value counts from the tool's folder, not from the current
+    # directory, which differs between runs.
+    return os.path.abspath(os.path.join(script_dir, os.path.expanduser(value)))

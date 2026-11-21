@@ -31,6 +31,14 @@ def test_environment_wins_and_expands_the_home_folder(tmp_path, monkeypatch):
     assert outdir.blogpost_dir(str(tmp_path)) == os.path.expanduser("~/posts")
 
 
+def test_a_relative_value_counts_from_the_tool_folder(tmp_path, monkeypatch):
+    _no_env(monkeypatch)
+    monkeypatch.setenv(outdir.VAR, "posts")
+    monkeypatch.chdir(tmp_path)
+    tool = tmp_path / "tool"
+    assert outdir.blogpost_dir(str(tool)) == str(tool / "posts")
+
+
 # The .env cases need python-dotenv, like main.py. The other tests run without it.
 needs_dotenv = pytest.mark.skipif(importlib.util.find_spec("dotenv") is None,
                                   reason="python-dotenv is not installed")
